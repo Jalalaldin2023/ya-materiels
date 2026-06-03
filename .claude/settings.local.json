@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/pc/.nvm/**)",
+      "Read(//opt/homebrew/**)",
+      "Bash(pip3 --version)",
+      "Bash(pip3 install *)",
+      "Bash(/Users/pc/Library/Python/3.9/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload)",
+      "Bash(curl -s http://localhost:8000/api/dashboard)",
+      "Bash(python3 -m json.tool)",
+      "Bash(mkdir -p /Users/pc/APP/.claude)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(chmod +x /Users/pc/APP/demarrer.sh)",
+      "Bash(curl -s http://localhost:8000/)",
+      "Bash(curl -s http://localhost:8000/api/auth/parametres)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin123\"}')",
+      "Bash(curl -s \"http://localhost:8000/api/auth/magasins\")",
+      "Bash(curl -s http://localhost:8000/api/auth/magasins)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\([m['nom'] for m in d]\\)\")",
+      "Bash(python3 import_stock_divo.py)",
+      "Read(//Users/pc/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/e4bed2b3-afd3-4fbf-ab39-a902b7d250c7/29e2c2f3-8150-45a8-ba36-4891b17a2e63/skills/xlsx/**)",
+      "Bash(extract-text \"/Users/pc/Downloads/Proposition_Commande_DICOREP.xlsx\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 import_stock_yamoussoukro.py)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git rm *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
