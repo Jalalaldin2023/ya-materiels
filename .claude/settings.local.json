@@ -33,7 +33,9 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://ya-materiels.onrender.com/)",
       "Bash(curl -s https://ya-materiels.onrender.com/)",
       "Bash(git remote *)",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(git config *)",
+      "Bash(git checkout *)"
     ]
   }
 }
