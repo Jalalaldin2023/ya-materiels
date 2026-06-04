@@ -38,7 +38,9 @@
       "Bash(git checkout *)",
       "Bash(git push *)",
       "Bash(find /var/folders /tmp ~/Downloads ~/Desktop -name \"*.png\" -o -name \"*.jpg\" -o -name \"*.jpeg\" 2>/dev/null | grep -i \"ya\\\\|materiels\\\\|logo\" | head -10)",
-      "Bash(xargs ls -lt)"
+      "Bash(xargs ls -lt)",
+      "Bash(git pull *)",
+      "Bash(git stash *)"
     ]
   }
 }
