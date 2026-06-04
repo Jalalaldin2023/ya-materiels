@@ -99,6 +99,7 @@ tr:hover td{background:#f9fafb}
 .badge-success{background:#d1fae5;color:#065f46}.badge-warning{background:#fef3c7;color:#92400e}
 .badge-danger{background:#fee2e2;color:#991b1b}.badge-info{background:#dbeafe;color:#1e40af}
 .badge-purple{background:#ede9fe;color:#5b21b6}.badge-gray{background:#f3f4f6;color:#374151}
+.badge-orange{background:#ffedd5;color:#9a3412}.badge-teal{background:#ccfbf1;color:#0f766e}.badge-pink{background:#fce7f3;color:#9d174d}
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
@@ -238,9 +239,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
       <div class="nav-sep">CLIENTS</div>
       <a onclick="showPage('clients')" data-page="clients" class="need-store"><span class="icon">👥</span> Clients</a>
       <a onclick="showPage('fournisseurs')" data-page="fournisseurs" class="nav-gestionnaire need-store"><span class="icon">🏭</span> Fournisseurs</a>
+      <div class="nav-sep nav-gerant">FINANCES</div>
+      <a onclick="showPage('depenses')" data-page="depenses" class="nav-gerant need-store"><span class="icon">💸</span> Dépenses</a>
+      <a onclick="showPage('comptabilite')" data-page="comptabilite" class="nav-gerant need-store"><span class="icon">📈</span> Comptabilité</a>
       <div class="nav-sep nav-admin">ADMINISTRATION</div>
-      <a onclick="showPage('depenses')" data-page="depenses" class="nav-admin need-store"><span class="icon">💸</span> Dépenses</a>
-      <a onclick="showPage('comptabilite')" data-page="comptabilite" class="nav-admin need-store"><span class="icon">📈</span> Comptabilité</a>
       <a onclick="showPage('magasins')" data-page="magasins" class="nav-admin"><span class="icon">⚙️</span> Paramètres magasins</a>
       <a onclick="showPage('utilisateurs')" data-page="utilisateurs" class="nav-admin"><span class="icon">👤</span> Utilisateurs</a>
     </nav>
@@ -292,8 +294,15 @@ const fmtDT = s => s ? new Date(s).toLocaleString('fr-FR') : '-';
 const fmtD = s => s ? new Date(s).toLocaleDateString('fr-FR') : '-';
 
 function currentMagasin() { return allMagasins.find(m => m.id === currentMagasinId) || null; }
-function isAdmin() { return currentUser?.role === 'admin'; }
-function isGest() { return ['admin','gestionnaire'].includes(currentUser?.role); }
+function isAdmin()      { return currentUser?.role === 'admin'; }
+function isDG()         { return ['admin','dg'].includes(currentUser?.role); }
+function isGerant()     { return ['admin','dg','gerant'].includes(currentUser?.role); }
+function isGest()       { return ['admin','dg','gerant','gestionnaire'].includes(currentUser?.role); }
+function isCommercial() { return ['admin','dg','gerant','commercial'].includes(currentUser?.role); }
+// DG voit la vue consolidée comme l'admin
+function canSeeConsolide() { return ['admin','dg'].includes(currentUser?.role); }
+// Seul admin gère utilisateurs & paramètres
+function canAdmin()     { return currentUser?.role === 'admin'; }
 
 async function api(path, opts={}) {
   try {
@@ -372,8 +381,8 @@ async function initApp() {
   allMagasins = await api('/auth/magasins');
 
   // Déterminer le magasin courant
-  if(isAdmin()) {
-    currentMagasinId = allMagasins[0]?.id || null; // défaut: 1er magasin
+  if(canSeeConsolide()) {
+    currentMagasinId = allMagasins[0]?.id || null;
     setupStoreSwitcher();
   } else {
     currentMagasinId = currentUser.magasin_id || allMagasins[0]?.id;
@@ -393,7 +402,7 @@ function setupStoreSwitcher() {
   const sel = document.getElementById('store-select');
   sw.classList.remove('hidden');
   sel.innerHTML = '';
-  if(isAdmin()) sel.innerHTML += `<option value="all">📊 Vue consolidée</option>`;
+  if(canSeeConsolide()) sel.innerHTML += `<option value="all">📊 Vue consolidée</option>`;
   allMagasins.forEach(m => {
     sel.innerHTML += `<option value="${m.id}">${m.nom}</option>`;
   });
@@ -434,19 +443,25 @@ function updateStoreTag() {
 function updateUserPanel() {
   const u = currentUser;
   document.getElementById('user-nom').textContent = u.nom;
-  const labels = {admin:'Administrateur', gestionnaire:'Gestionnaire', caissier:'Caissier'};
+  const labels = {admin:'Administrateur', dg:'Directeur Général', gerant:'Gérant', gestionnaire:'Gestionnaire', commercial:'Commercial', caissier:'Caissier'};
   document.getElementById('user-role-lbl').textContent = labels[u.role] || u.role;
-  const colors = {admin:'#7c3aed', gestionnaire:'#0e9f6e', caissier:'#1a56db'};
+  const colors = {admin:'#7c3aed', dg:'#b45309', gerant:'#0891b2', gestionnaire:'#0e9f6e', commercial:'#db2777', caissier:'#1a56db'};
   const av = document.getElementById('user-av');
   av.style.background = colors[u.role] || '#1a56db';
   av.textContent = u.nom[0].toUpperCase();
 }
 
 function applyRoleNav() {
-  document.querySelectorAll('.nav-admin').forEach(el => el.style.display = isAdmin() ? '' : 'none');
+  // Paramètres & utilisateurs → admin uniquement
+  document.querySelectorAll('.nav-admin').forEach(el => el.style.display = canAdmin() ? '' : 'none');
+  // Finances (dépenses, compta) → admin, DG, gérant
+  document.querySelectorAll('.nav-gerant').forEach(el => el.style.display = isGerant() ? '' : 'none');
+  // Stock, achats, produits, fournisseurs → admin, DG, gérant, gestionnaire
   document.querySelectorAll('.nav-gestionnaire').forEach(el => el.style.display = isGest() ? '' : 'none');
-  if(!isAdmin()) setupStoreSwitcher(); // caissier voit son magasin uniquement
-  // hide need-store si vue consolidée
+  // Sélecteur de magasin : admin & DG voient tous les magasins
+  if(!canSeeConsolide()) setupStoreSwitcher();
+  else setupStoreSwitcher();
+  // Pages qui nécessitent un magasin sélectionné
   document.querySelectorAll('.need-store').forEach(el => el.style.display = currentMagasinId ? '' : 'none');
 }
 
@@ -468,7 +483,7 @@ function showPage(page) {
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 async function pageDashboard() {
-  if(!currentMagasinId && isAdmin()) { pageDashboardConsolide(); return; }
+  if(!currentMagasinId && canSeeConsolide()) { pageDashboardConsolide(); return; }
   if(!currentMagasinId) { noStore(); return; }
 
   const data = await api(`/dashboard?magasin_id=${currentMagasinId}`);
@@ -1302,7 +1317,7 @@ async function delFourn(id,n){if(!confirm(`Supprimer "${n}" ?`))return;await api
 
 // ── DÉPENSES ──────────────────────────────────────────────────────────────────
 const CATS_DEP=['loyer','salaires','electricite','transport','entretien','fournitures','autre'];
-async function pageDepenses(){if(!isAdmin()){restricted();return;}if(!currentMagasinId){noStore();return;}renderDepenses();}
+async function pageDepenses(){if(!isGerant()){restricted();return;}if(!currentMagasinId){noStore();return;}renderDepenses();}
 async function renderDepenses(dd='',df=''){
   let url=`/depenses?magasin_id=${currentMagasinId}`;if(dd)url+=`&date_debut=${dd}`;if(df)url+=`&date_fin=${df}`;
   const data=await api(url);
@@ -1347,7 +1362,7 @@ async function saveDep(){
 async function delDep(id){if(!confirm('Supprimer ?'))return;await api(`/depenses/${id}`,{method:'DELETE'});toast('Supprimée');renderDepenses();}
 
 // ── COMPTABILITÉ ──────────────────────────────────────────────────────────────
-async function pageComptabilite(){if(!isAdmin()){restricted();return;}if(!currentMagasinId){noStore();return;}
+async function pageComptabilite(){if(!isGerant()){restricted();return;}if(!currentMagasinId){noStore();return;}
   const data=await api(`/dashboard/comptabilite?magasin_id=${currentMagasinId}`);
   document.getElementById('content').innerHTML=`
     <div class="grid-stats mb-4">
@@ -1370,7 +1385,7 @@ async function pageComptabilite(){if(!isAdmin()){restricted();return;}if(!curren
 let editMagasinId = null;
 
 async function pageMagasins(){
-  if(!isAdmin()){restricted();return;}
+  if(!canAdmin()){restricted();return;}
   const data = await api('/auth/magasins');
   editMagasinId = data[0]?.id || null;
 
@@ -1714,10 +1729,10 @@ async function saveMagasin(id){
   setupStoreSwitcher(); closeModal(); pageMagasins();}
 
 // ── UTILISATEURS ──────────────────────────────────────────────────────────────
-async function pageUtilisateurs(){if(!isAdmin()){restricted();return;}
+async function pageUtilisateurs(){if(!canAdmin()){restricted();return;}
   const data=await api('/auth/utilisateurs');
-  const rL={admin:'Administrateur',gestionnaire:'Gestionnaire',caissier:'Caissier'};
-  const rC={admin:'badge-purple',gestionnaire:'badge-success',caissier:'badge-info'};
+  const rL={admin:'Administrateur',dg:'Directeur Général',gerant:'Gérant',gestionnaire:'Gestionnaire',commercial:'Commercial',caissier:'Caissier'};
+  const rC={admin:'badge-purple',dg:'badge-orange',gerant:'badge-teal',gestionnaire:'badge-success',commercial:'badge-pink',caissier:'badge-info'};
   document.getElementById('content').innerHTML=`
     <div class="card">
       <div class="section-header"><h3>Utilisateurs (${data.length})</h3>
@@ -1738,10 +1753,13 @@ async function pageUtilisateurs(){if(!isAdmin()){restricted();return;}
         </tbody>
       </table></div>
       <div style="margin-top:14px;padding:11px;background:#fef3c7;border-radius:7px;font-size:12px">
-        <strong>⚠️ Rôles :</strong>
-        <span class="badge badge-purple">Admin</span> Accès complet & tous magasins ·
-        <span class="badge badge-success">Gestionnaire</span> Stock, achats, produits (1 magasin) ·
-        <span class="badge badge-info">Caissier</span> POS & ventes (1 magasin)
+        <strong>Rôles disponibles :</strong><br><br>
+        <span class="badge badge-purple">Admin</span> Accès complet + tous les magasins + paramètres &nbsp;·&nbsp;
+        <span class="badge badge-orange">DG</span> Vue consolidée + finances + tout (sans gestion utilisateurs) &nbsp;·&nbsp;
+        <span class="badge badge-teal">Gérant</span> Tout le magasin : ventes, stock, dépenses, compta &nbsp;·&nbsp;
+        <span class="badge badge-success">Gestionnaire</span> Stock, produits, achats, fournisseurs &nbsp;·&nbsp;
+        <span class="badge badge-pink">Commercial</span> POS, ventes, clients &nbsp;·&nbsp;
+        <span class="badge badge-info">Caissier</span> POS & ventes uniquement
       </div>
     </div>`;}
 
@@ -1756,16 +1774,19 @@ function modalUser(id=null,nom='',username='',role='caissier',magasinId=null,act
       <div class="form-row">
         <div class="form-group"><label>Rôle</label>
           <select id="u_r" onchange="toggleMagasinSel(this.value)">
-            <option value="caissier" ${role==='caissier'?'selected':''}>Caissier</option>
-            <option value="gestionnaire" ${role==='gestionnaire'?'selected':''}>Gestionnaire</option>
-            <option value="admin" ${role==='admin'?'selected':''}>Administrateur</option>
+            <option value="caissier" ${role==='caissier'?'selected':''}>🔵 Caissier — POS & ventes</option>
+            <option value="commercial" ${role==='commercial'?'selected':''}>🩷 Commercial — Ventes & clients</option>
+            <option value="gestionnaire" ${role==='gestionnaire'?'selected':''}>🟢 Gestionnaire — Stock & achats</option>
+            <option value="gerant" ${role==='gerant'?'selected':''}>🩵 Gérant — Tout le magasin</option>
+            <option value="dg" ${role==='dg'?'selected':''}>🟠 DG — Tous magasins + finances</option>
+            <option value="admin" ${role==='admin'?'selected':''}>🟣 Administrateur — Accès complet</option>
           </select>
         </div>
         <div class="form-group"><label>Statut</label>
           <select id="u_a"><option value="1" ${actif?'selected':''}>Actif</option><option value="0" ${!actif?'selected':''}>Inactif</option></select>
         </div>
       </div>
-      <div class="form-group" id="magasin-sel-wrap" style="${role==='admin'?'display:none':''}">
+      <div class="form-group" id="magasin-sel-wrap" style="${['admin','dg'].includes(role)?'display:none':''}">
         <label>Magasin assigné</label>
         <select id="u_m">
           <option value="">-- Sélectionner --</option>
@@ -1783,7 +1804,8 @@ function modalUser(id=null,nom='',username='',role='caissier',magasinId=null,act
   </div>`);}
 
 function toggleMagasinSel(role){
-  document.getElementById('magasin-sel-wrap').style.display=role==='admin'?'none':'';}
+  // Admin et DG ont accès à tous les magasins → pas de sélection
+  document.getElementById('magasin-sel-wrap').style.display=['admin','dg'].includes(role)?'none':'';}
 
 async function saveUser(id){
   const nom=document.getElementById('u_n').value.trim();
@@ -1791,7 +1813,7 @@ async function saveUser(id){
   const pwd=document.getElementById('u_p').value;
   const role=document.getElementById('u_r').value;
   const actif=parseInt(document.getElementById('u_a').value);
-  const magasinId=role==='admin'?null:(parseInt(document.getElementById('u_m').value)||null);
+  const magasinId=['admin','dg'].includes(role)?null:(parseInt(document.getElementById('u_m').value)||null);
   if(!nom||!username){toast('Nom et identifiant requis !','danger');return;}
   if(!id&&!pwd){toast('Mot de passe requis !','danger');return;}
   await api(id?`/auth/utilisateurs/${id}`:'/auth/utilisateurs',{method:id?'PUT':'POST',body:{nom,username,password:pwd||null,role,magasin_id:magasinId,actif}});
