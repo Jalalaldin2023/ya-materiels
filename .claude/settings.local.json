@@ -35,7 +35,9 @@
       "Bash(git remote *)",
       "Bash(gh auth *)",
       "Bash(git config *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(git push *)",
+      "Bash(cat ~/.git-credentials 2>/dev/null | sed 's/:.*@/:***@/g' || echo \"pas de credentials stockés\")"
     ]
   }
 }

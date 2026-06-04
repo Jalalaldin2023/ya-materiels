@@ -241,7 +241,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
       <div class="nav-sep nav-admin">ADMINISTRATION</div>
       <a onclick="showPage('depenses')" data-page="depenses" class="nav-admin need-store"><span class="icon">💸</span> Dépenses</a>
       <a onclick="showPage('comptabilite')" data-page="comptabilite" class="nav-admin need-store"><span class="icon">📈</span> Comptabilité</a>
-      <a onclick="showPage('magasins')" data-page="magasins" class="nav-admin"><span class="icon">🏪</span> Magasins</a>
+      <a onclick="showPage('magasins')" data-page="magasins" class="nav-admin"><span class="icon">⚙️</span> Paramètres magasins</a>
       <a onclick="showPage('utilisateurs')" data-page="utilisateurs" class="nav-admin"><span class="icon">👤</span> Utilisateurs</a>
     </nav>
 
@@ -455,7 +455,7 @@ const pageTitles = {
   dashboard:'Tableau de bord', pos:'Point de vente', ventes:'Ventes',
   produits:'Produits', stock:'Gestion du stock', achats:'Achats',
   clients:'Clients', fournisseurs:'Fournisseurs', depenses:'Dépenses',
-  comptabilite:'Comptabilité', magasins:'Gestion des magasins', utilisateurs:'Utilisateurs'
+  comptabilite:'Comptabilité', magasins:'Paramètres des magasins', utilisateurs:'Utilisateurs'
 };
 
 function showPage(page) {
@@ -1366,104 +1366,347 @@ async function pageComptabilite(){if(!isAdmin()){restricted();return;}if(!curren
   const c2=document.getElementById('chartCat')?.getContext('2d');
   if(c2&&data.depenses_par_cat.length)chartCat=new Chart(c2,{type:'doughnut',data:{labels:data.depenses_par_cat.map(d=>d.categorie),datasets:[{data:data.depenses_par_cat.map(d=>d.total),backgroundColor:['#1a56db','#0e9f6e','#e02424','#c27803','#7c3aed','#db2777']}]},options:{responsive:true}});}
 
-// ── MAGASINS (admin) ──────────────────────────────────────────────────────────
-async function pageMagasins(){if(!isAdmin()){restricted();return;}
-  const data=await api('/auth/magasins');
-  document.getElementById('content').innerHTML=`
-    <div class="card">
-      <div class="section-header"><h3>Magasins (${data.length})</h3>
-        <button class="btn btn-primary" onclick="modalMagasin()">+ Nouveau magasin</button>
+// ── MAGASINS / PARAMÈTRES ─────────────────────────────────────────────────────
+let editMagasinId = null;
+
+async function pageMagasins(){
+  if(!isAdmin()){restricted();return;}
+  const data = await api('/auth/magasins');
+  editMagasinId = data[0]?.id || null;
+
+  document.getElementById('content').innerHTML = `
+    <style>
+      .param-layout{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start}
+      .param-section{background:#fff;border-radius:10px;border:1px solid var(--border);margin-bottom:16px;overflow:hidden}
+      .param-section-head{padding:14px 18px;background:#f9fafb;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px}
+      .param-section-body{padding:18px}
+      .param-store-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:0}
+      .param-store-tab{flex:1;padding:12px;text-align:center;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-muted);border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;background:none;border-top:none;border-left:none;border-right:none}
+      .param-store-tab.active{color:var(--primary);border-bottom-color:var(--primary);background:#f0f4ff}
+      .swatch-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-top:8px}
+      .swatch{width:32px;height:32px;border-radius:6px;cursor:pointer;border:3px solid transparent;transition:all .15s;position:relative}
+      .swatch:hover{transform:scale(1.15)}
+      .swatch.selected::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700}
+      .logo-preview{width:72px;height:72px;border-radius:12px;object-fit:contain;border:1px solid var(--border);background:#f9fafb;display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0}
+      .recu-preview{background:#fff;border:1px dashed #ccc;border-radius:8px;padding:16px;font-family:monospace;font-size:12px;line-height:1.7}
+      .recu-preview .rc{text-align:center}.recu-preview .rs{border-top:1px dashed #999;margin:8px 0}
+      .recu-preview .rr{display:flex;justify-content:space-between}
+      .live-badge{font-size:10px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:99px;font-weight:500}
+      .color-picker-wrap{display:flex;align-items:center;gap:10px}
+      .color-picker-wrap input[type=color]{width:44px;height:38px;padding:2px;border-radius:8px;cursor:pointer;border:1px solid var(--border)}
+      .color-label{font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px}
+    </style>
+
+    <!-- Sélecteur de magasin -->
+    <div class="param-section" style="margin-bottom:16px">
+      <div class="param-store-tabs">
+        ${data.map((m,i)=>`
+          <button class="param-store-tab ${i===0?'active':''}" onclick="switchParamStore(${m.id},this)"
+            style="${i===0?`border-bottom-color:${m.theme_primary||'var(--primary)'};color:${m.theme_primary||'var(--primary)'}`:''}"
+            data-color="${m.theme_primary||'#1a56db'}">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${m.theme_primary||'#1a56db'};margin-right:6px;vertical-align:middle"></span>
+            ${m.nom}
+          </button>`).join('')}
       </div>
-      <div class="grid-2" style="margin-top:4px">
-        ${data.map(m=>`
-          <div class="store-card">
-            <div class="store-card-header">
-              <div class="store-num" style="background:${m.theme_primary||'#1a56db'}">${m.id}</div>
-              <div><div style="font-weight:700">${m.nom}</div><div style="font-size:11px;color:var(--text-muted)">${m.adresse||'Pas d\'adresse'}</div></div>
-              <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="modalMagasin(${m.id})">✏️ Modifier</button>
+    </div>
+
+    <div class="param-layout">
+      <!-- Colonne gauche : formulaires -->
+      <div>
+        <!-- Identité -->
+        <div class="param-section">
+          <div class="param-section-head">🏪 Identité du magasin</div>
+          <div class="param-section-body">
+            <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:16px">
+              <div id="logo-preview-box" class="logo-preview">🔧</div>
+              <div style="flex:1">
+                <div class="form-group" style="margin-bottom:10px">
+                  <label>URL du logo <span style="font-size:11px;color:var(--text-muted)">(lien image JPG/PNG)</span></label>
+                  <input id="pm_logo" placeholder="https://..." oninput="previewLogo(this.value)">
+                </div>
+                <div style="font-size:11px;color:var(--text-muted)">Astuce : uploadez votre logo sur <a href="https://imgbb.com" target="_blank">imgbb.com</a> et collez le lien direct ici.</div>
+              </div>
             </div>
-            <div class="store-card-body">
-              <div class="store-stat"><span class="label">Téléphone</span><span class="val">${m.telephone||'-'}</span></div>
-              <div class="store-stat"><span class="label">Devise</span><span class="val">${m.devise}</span></div>
-              <div class="store-stat"><span class="label">Couleur</span><span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:${m.theme_primary}"></span></div>
+            <div class="form-row">
+              <div class="form-group"><label>Nom du magasin *</label><input id="pm_nom" oninput="livePreviewRecu()"></div>
+              <div class="form-group"><label>Slogan</label><input id="pm_slogan"></div>
             </div>
-          </div>`).join('')}
+            <div class="form-row">
+              <div class="form-group"><label>Téléphone</label><input id="pm_tel" oninput="livePreviewRecu()"></div>
+              <div class="form-group"><label>Email</label><input id="pm_email"></div>
+            </div>
+            <div class="form-group"><label>Adresse complète</label><input id="pm_adresse" oninput="livePreviewRecu()"></div>
+            <div class="form-row">
+              <div class="form-group"><label>RCCM</label><input id="pm_rccm" oninput="livePreviewRecu()"></div>
+              <div class="form-group"><label>NIF</label><input id="pm_nif" oninput="livePreviewRecu()"></div>
+            </div>
+            <div class="form-group">
+              <label>Devise</label>
+              <select id="pm_devise" style="width:140px">
+                ${['FCFA','XOF','MAD','EUR','USD','DZD','TND'].map(d=>`<option value="${d}">${d}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Thème -->
+        <div class="param-section">
+          <div class="param-section-head">🎨 Thème & Couleurs <span class="live-badge">Aperçu en direct</span></div>
+          <div class="param-section-body">
+            <div class="form-row" style="margin-bottom:16px">
+              <div>
+                <span class="color-label">Couleur principale (boutons, liens actifs)</span>
+                <div class="color-picker-wrap">
+                  <input type="color" id="pm_primary" oninput="liveColor('primary',this.value)">
+                  <span id="pm_primary_hex" style="font-size:12px;font-family:monospace;color:var(--text-muted)">#1a56db</span>
+                </div>
+                <div class="swatch-grid">
+                  ${['#1a56db','#2563eb','#7c3aed','#9333ea','#0e9f6e','#16a34a','#e02424','#dc2626',
+                     '#c27803','#d97706','#db2777','#ec4899','#0891b2','#0284c7','#374151','#1f2937'].map(c=>
+                    `<div class="swatch" style="background:${c}" onclick="pickColor('primary','${c}')" title="${c}"></div>`).join('')}
+                </div>
+              </div>
+              <div>
+                <span class="color-label">Couleur de la barre latérale</span>
+                <div class="color-picker-wrap">
+                  <input type="color" id="pm_sidebar" oninput="liveColor('sidebar',this.value)">
+                  <span id="pm_sidebar_hex" style="font-size:12px;font-family:monospace;color:var(--text-muted)">#1e293b</span>
+                </div>
+                <div class="swatch-grid">
+                  ${['#1e293b','#0f172a','#111827','#1e3a5f','#1e1b4b','#3b0764','#064e3b','#292524',
+                     '#1c1917','#422006','#052e16','#1a1a2e','#16213e','#0d0d0d','#2d1b69','#4a1942'].map(c=>
+                    `<div class="swatch" style="background:${c}" onclick="pickColor('sidebar','${c}')" title="${c}"></div>`).join('')}
+                </div>
+              </div>
+            </div>
+            <div style="padding:12px;background:#f9fafb;border-radius:8px;font-size:12px;color:var(--text-muted)">
+              💡 Les couleurs s'appliquent instantanément — vous voyez le résultat avant d'enregistrer.
+            </div>
+          </div>
+        </div>
+
+        <!-- Reçu -->
+        <div class="param-section">
+          <div class="param-section-head">🧾 Reçu & Facture</div>
+          <div class="param-section-body">
+            <div class="form-group">
+              <label>Message de pied de reçu</label>
+              <input id="pm_pied" placeholder="Ex: Merci pour votre achat !" oninput="livePreviewRecu()">
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-success" style="width:100%;justify-content:center;font-size:15px;padding:12px" onclick="saveParamMagasin()">
+          💾 Enregistrer les paramètres
+        </button>
       </div>
-    </div>`;}
+
+      <!-- Colonne droite : aperçu reçu -->
+      <div style="position:sticky;top:16px">
+        <div class="param-section">
+          <div class="param-section-head">👁 Aperçu du reçu <span class="live-badge">En direct</span></div>
+          <div class="param-section-body" style="padding:12px">
+            <div class="recu-preview" id="recu-live">
+              <div class="rc"><strong>Nom du magasin</strong><br>Adresse<br>Téléphone</div>
+              <div class="rs"></div>
+              <div><strong>REÇU DE VENTE</strong></div>
+              <div>N° VT1-20260601-001</div>
+              <div>01/06/2026 09:30</div>
+              <div class="rs"></div>
+              <div>Peinture Milano 5KG<div class="rr"><span>2 × 3 000</span><span>6 000 FCFA</span></div></div>
+              <div>Diluant A 1L<div class="rr"><span>3 × 1 040</span><span>3 120 FCFA</span></div></div>
+              <div class="rs"></div>
+              <div class="rr"><strong>TOTAL</strong><strong>9 120 FCFA</strong></div>
+              <div class="rr"><span>Reçu</span><span>10 000 FCFA</span></div>
+              <div class="rr"><span>Monnaie</span><span>880 FCFA</span></div>
+              <div class="rs"></div>
+              <div class="rc"><em id="recu-pied-preview">Merci pour votre achat !</em></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mini aperçu sidebar -->
+        <div class="param-section">
+          <div class="param-section-head">🖥 Aperçu interface</div>
+          <div class="param-section-body" style="padding:10px">
+            <div id="ui-preview" style="border-radius:8px;overflow:hidden;border:1px solid var(--border);display:flex;height:140px">
+              <div id="prev-sidebar" style="width:90px;padding:8px;font-size:10px;color:#e2e8f0;display:flex;flex-direction:column;gap:4px">
+                <div id="prev-logo-name" style="font-weight:700;font-size:9px;color:#f1f5f9;margin-bottom:4px">Magasin</div>
+                ${['📊 Dashboard','🛒 Ventes','📦 Stock'].map(l=>`<div style="padding:3px 6px;border-radius:4px;opacity:.8">${l}</div>`).join('')}
+              </div>
+              <div style="flex:1;background:#f3f4f6;padding:8px">
+                <div id="prev-btn" style="display:inline-block;padding:4px 10px;border-radius:4px;color:#fff;font-size:10px;font-weight:600;margin-bottom:6px">+ Nouveau</div>
+                <div style="background:#fff;border-radius:4px;padding:6px;font-size:10px;color:#374151">
+                  <div style="font-weight:600;margin-bottom:4px">Tableau de bord</div>
+                  <div style="height:4px;background:#e5e7eb;border-radius:2px;margin-bottom:3px"></div>
+                  <div style="height:4px;background:#e5e7eb;border-radius:2px;width:70%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // Charger les données du premier magasin
+  loadParamStore(data[0]);
+}
+
+function switchParamStore(id, btn) {
+  editMagasinId = id;
+  document.querySelectorAll('.param-store-tab').forEach(b => {
+    b.classList.remove('active');
+    b.style.borderBottomColor = 'transparent';
+    b.style.color = 'var(--text-muted)';
+  });
+  const color = btn.dataset.color || 'var(--primary)';
+  btn.classList.add('active');
+  btn.style.borderBottomColor = color;
+  btn.style.color = color;
+  api(`/auth/magasins/${id}`).then(m => loadParamStore(m));
+}
+
+function loadParamStore(m) {
+  if(!m) return;
+  editMagasinId = m.id;
+  const setVal = (id, val) => { const el=document.getElementById(id); if(el) el.value=val||''; };
+  setVal('pm_nom', m.nom); setVal('pm_slogan', m.slogan);
+  setVal('pm_tel', m.telephone); setVal('pm_email', m.email);
+  setVal('pm_adresse', m.adresse); setVal('pm_rccm', m.rccm);
+  setVal('pm_nif', m.nif); setVal('pm_logo', m.logo);
+  setVal('pm_pied', m.recu_pied || 'Merci pour votre achat !');
+  const dev = document.getElementById('pm_devise');
+  if(dev) dev.value = m.devise || 'FCFA';
+
+  // Couleurs
+  const pc = m.theme_primary || '#1a56db';
+  const sc = m.theme_sidebar || '#1e293b';
+  const pp = document.getElementById('pm_primary');
+  const sp = document.getElementById('pm_sidebar');
+  if(pp) { pp.value = pc; document.getElementById('pm_primary_hex').textContent = pc; }
+  if(sp) { sp.value = sc; document.getElementById('pm_sidebar_hex').textContent = sc; }
+
+  // Marquer les swatches actifs
+  document.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+
+  // Appliquer thème en direct
+  liveColor('primary', pc); liveColor('sidebar', sc);
+  previewLogo(m.logo || '');
+  livePreviewRecu();
+}
+
+function previewLogo(url) {
+  const box = document.getElementById('logo-preview-box');
+  if(!box) return;
+  if(url && url.startsWith('http')) {
+    box.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:contain;border-radius:10px" onerror="this.parentNode.innerHTML='🔧'">`;
+  } else {
+    box.innerHTML = '🔧';
+  }
+}
+
+function liveColor(type, val) {
+  const root = document.documentElement;
+  if(type === 'primary') {
+    root.style.setProperty('--primary', val);
+    const hex = document.getElementById('pm_primary_hex');
+    if(hex) hex.textContent = val;
+    const btn = document.getElementById('prev-btn');
+    if(btn) btn.style.background = val;
+    // Marquer swatch
+    document.querySelectorAll('.swatch').forEach(s => {
+      if(s.style.background === val || s.getAttribute('onclick')?.includes(val)) s.classList.add('selected');
+    });
+  }
+  if(type === 'sidebar') {
+    root.style.setProperty('--sidebar-bg', val);
+    const hex = document.getElementById('pm_sidebar_hex');
+    if(hex) hex.textContent = val;
+    const prev = document.getElementById('prev-sidebar');
+    if(prev) prev.style.background = val;
+  }
+}
+
+function pickColor(type, val) {
+  const inputId = type === 'primary' ? 'pm_primary' : 'pm_sidebar';
+  const inp = document.getElementById(inputId);
+  if(inp) inp.value = val;
+  liveColor(type, val);
+}
+
+function livePreviewRecu() {
+  const nom = document.getElementById('pm_nom')?.value || 'Nom du magasin';
+  const adresse = document.getElementById('pm_adresse')?.value || '';
+  const tel = document.getElementById('pm_tel')?.value || '';
+  const rccm = document.getElementById('pm_rccm')?.value || '';
+  const nif = document.getElementById('pm_nif')?.value || '';
+  const pied = document.getElementById('pm_pied')?.value || 'Merci pour votre achat !';
+
+  const box = document.getElementById('recu-live');
+  if(!box) return;
+  box.innerHTML = `
+    <div class="rc">
+      <strong style="font-size:13px">${nom}</strong>
+      ${adresse ? `<br><span>${adresse}</span>` : ''}
+      ${tel ? `<br><span>Tél: ${tel}</span>` : ''}
+      ${rccm ? `<br><span>RCCM: ${rccm}</span>` : ''}
+      ${nif ? `<br><span>NIF: ${nif}</span>` : ''}
+    </div>
+    <div class="rs"></div>
+    <div class="rc"><strong>REÇU DE VENTE</strong><br>N° VT1-20260601-001<br>01/06/2026 09:30</div>
+    <div class="rs"></div>
+    <div>Peinture Milano 5KG<div class="rr"><span>2 × 3 000</span><span>6 000 FCFA</span></div></div>
+    <div>Diluant A 1L<div class="rr"><span>3 × 1 040</span><span>3 120 FCFA</span></div></div>
+    <div class="rs"></div>
+    <div class="rr"><strong>TOTAL</strong><strong>9 120 FCFA</strong></div>
+    <div class="rr"><span>Reçu</span><span>10 000 FCFA</span></div>
+    <div class="rr"><span>Monnaie</span><span>880 FCFA</span></div>
+    <div class="rs"></div>
+    <div class="rc"><em>${pied}</em></div>`;
+
+  // Mini aperçu nom sidebar
+  const sbn = document.getElementById('prev-logo-name');
+  if(sbn) sbn.textContent = nom.substring(0, 14);
+}
+
+async function saveParamMagasin(){
+  if(!editMagasinId){toast('Sélectionnez un magasin','danger');return;}
+  const p = {
+    nom:           document.getElementById('pm_nom')?.value || '',
+    slogan:        document.getElementById('pm_slogan')?.value || '',
+    adresse:       document.getElementById('pm_adresse')?.value || '',
+    telephone:     document.getElementById('pm_tel')?.value || '',
+    email:         document.getElementById('pm_email')?.value || '',
+    rccm:          document.getElementById('pm_rccm')?.value || '',
+    nif:           document.getElementById('pm_nif')?.value || '',
+    logo:          document.getElementById('pm_logo')?.value || '',
+    devise:        document.getElementById('pm_devise')?.value || 'FCFA',
+    theme_primary: document.getElementById('pm_primary')?.value || '#1a56db',
+    theme_sidebar: document.getElementById('pm_sidebar')?.value || '#1e293b',
+    recu_pied:     document.getElementById('pm_pied')?.value || 'Merci pour votre achat !',
+  };
+  if(!p.nom){toast('Le nom du magasin est requis !','danger');return;}
+  await api(`/auth/magasins/${editMagasinId}`, {method:'PUT', body:p});
+  allMagasins = await api('/auth/magasins');
+  setupStoreSwitcher();
+  updateSidebarBranding();
+  toast(`✅ ${p.nom} — paramètres enregistrés !`);
+}
 
 async function modalMagasin(id=null){
-  let m={nom:'',slogan:'',adresse:'',telephone:'',email:'',rccm:'',nif:'',devise:'FCFA',theme_primary:'#1a56db',theme_sidebar:'#1e293b',recu_pied:'Merci pour votre achat !'};
-  if(id) m=await api(`/auth/magasins/${id}`);
-  showModal(`<div class="modal modal-lg">
-    <div class="modal-header"><h3>${id?'Modifier':'Nouveau'} magasin</h3><button class="btn-icon" onclick="closeModal()">✕</button></div>
-    <div class="modal-body">
-      <div class="tab-bar">
-        <button class="tab-btn active" onclick="switchTab('mt-info',this)">📋 Infos</button>
-        <button class="tab-btn" onclick="switchTab('mt-theme',this)">🎨 Thème</button>
-        <button class="tab-btn" onclick="switchTab('mt-recu',this)">🧾 Reçu</button>
-      </div>
-      <div id="mt-info" class="tab-content active">
-        <div class="form-row">
-          <div class="form-group"><label>Nom du magasin *</label><input id="m_nom" value="${m.nom}"></div>
-          <div class="form-group"><label>Slogan</label><input id="m_slogan" value="${m.slogan||''}"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Téléphone</label><input id="m_tel" value="${m.telephone||''}"></div>
-          <div class="form-group"><label>Email</label><input id="m_email" value="${m.email||''}"></div>
-        </div>
-        <div class="form-group"><label>Adresse</label><input id="m_adresse" value="${m.adresse||''}"></div>
-        <div class="form-row">
-          <div class="form-group"><label>RCCM</label><input id="m_rccm" value="${m.rccm||''}"></div>
-          <div class="form-group"><label>NIF</label><input id="m_nif" value="${m.nif||''}"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Devise</label>
-            <select id="m_devise">${['FCFA','XOF','MAD','EUR','USD','DZD','TND'].map(d=>`<option value="${d}" ${m.devise===d?'selected':''}>${d}</option>`).join('')}</select>
-          </div>
-          <div class="form-group"><label>Logo URL</label><input id="m_logo" value="${m.logo||''}" placeholder="https://..."></div>
-        </div>
-      </div>
-      <div id="mt-theme" class="tab-content">
-        <div class="form-group"><label>Couleur principale</label>
-          <div class="color-row">
-            <input type="color" id="m_primary" value="${m.theme_primary||'#1a56db'}">
-            <div class="color-presets">
-              ${['#1a56db','#7c3aed','#0e9f6e','#e02424','#c27803','#db2777','#0891b2','#16a34a'].map(c=>
-                `<div class="color-swatch" style="background:${c}" onclick="document.getElementById('m_primary').value='${c}'"></div>`).join('')}
-            </div>
-          </div>
-        </div>
-        <div class="form-group"><label>Couleur barre latérale</label>
-          <div class="color-row">
-            <input type="color" id="m_sidebar" value="${m.theme_sidebar||'#1e293b'}">
-            <div class="color-presets">
-              ${['#1e293b','#111827','#1e3a5f','#0f172a','#292524','#064e3b','#1e1b4b','#3b0764'].map(c=>
-                `<div class="color-swatch" style="background:${c}" onclick="document.getElementById('m_sidebar').value='${c}'"></div>`).join('')}
-            </div>
-          </div>
-        </div>
-      </div>
-      <div id="mt-recu" class="tab-content">
-        <div class="form-group"><label>Message pied de reçu</label>
-          <input id="m_pied" value="${m.recu_pied||'Merci pour votre achat !'}">
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
-      <button class="btn btn-primary" onclick="saveMagasin(${id||'null'})">💾 Enregistrer</button>
-    </div>
-  </div>`);}
+  // Garde pour compatibilité — redirige vers pageMagasins
+  showPage('magasins');
+}
 
 async function saveMagasin(id){
-  const p={nom:document.getElementById('m_nom').value,slogan:document.getElementById('m_slogan').value,
-    adresse:document.getElementById('m_adresse').value,telephone:document.getElementById('m_tel').value,
-    email:document.getElementById('m_email').value,rccm:document.getElementById('m_rccm').value,
-    nif:document.getElementById('m_nif').value,logo:document.getElementById('m_logo').value,
-    devise:document.getElementById('m_devise').value,
-    theme_primary:document.getElementById('m_primary').value,
-    theme_sidebar:document.getElementById('m_sidebar').value,
-    recu_pied:document.getElementById('m_pied').value};
+  const p={nom:document.getElementById('m_nom')?.value||'',slogan:document.getElementById('m_slogan')?.value||'',
+    adresse:document.getElementById('m_adresse')?.value||'',telephone:document.getElementById('m_tel')?.value||'',
+    email:document.getElementById('m_email')?.value||'',rccm:document.getElementById('m_rccm')?.value||'',
+    nif:document.getElementById('m_nif')?.value||'',logo:document.getElementById('m_logo')?.value||'',
+    devise:document.getElementById('m_devise')?.value||'FCFA',
+    theme_primary:document.getElementById('m_primary')?.value||'#1a56db',
+    theme_sidebar:document.getElementById('m_sidebar')?.value||'#1e293b',
+    recu_pied:document.getElementById('m_pied')?.value||'Merci pour votre achat !'};
   if(!p.nom){toast('Nom requis !','danger');return;}
   await api(id?`/auth/magasins/${id}`:'/auth/magasins',{method:id?'PUT':'POST',body:p});
   toast(id?'Magasin mis à jour':'Magasin créé');
