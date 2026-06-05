@@ -602,39 +602,53 @@ function setPvNiveau(n) {
     if(prod) it.prix = getPrixProduit(prod);
     return it;
   });
-  filterPos();
+  filterPos(); // recalcule les prix affichés
   renderPanier();
 }
 
 async function pagePos(){
   if(!currentMagasinId){noStore();return;}
   pvNiveau = 1;
+  posCatActive = '';
   const content=document.getElementById('content');
   content.style.padding='14px';
   content.innerHTML=`
     <style>
-      .pv-btn{padding:6px 14px;border-radius:6px;border:2px solid var(--border);background:#fff;cursor:pointer;font-size:12px;font-weight:700;transition:all .15s}
+      .pv-btn{padding:5px 12px;border-radius:6px;border:2px solid var(--border);background:#fff;cursor:pointer;font-size:12px;font-weight:700;transition:all .15s}
       .pv-btn.active-pv{background:var(--primary);color:#fff;border-color:var(--primary)}
-      .pv-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px}
+      .pv-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:3px}
       .pv1-badge{background:#dbeafe;color:#1e40af}
       .pv2-badge{background:#fef9c3;color:#854d0e}
       .pv3-badge{background:#fce7f3;color:#9d174d}
+      /* Onglets catégories */
+      .cat-tabs{display:flex;gap:4px;overflow-x:auto;padding:4px 0 6px;scrollbar-width:none;flex-shrink:0}
+      .cat-tabs::-webkit-scrollbar{display:none}
+      .cat-tab{display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:20px;border:1.5px solid var(--border);background:#fff;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;color:var(--text-muted);transition:all .15s;flex-shrink:0}
+      .cat-tab:hover{border-color:var(--primary);color:var(--primary)}
+      .cat-tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+      .cat-tab .cat-count{background:rgba(255,255,255,.25);padding:1px 6px;border-radius:10px;font-size:10px}
+      .cat-tab:not(.active) .cat-count{background:#f3f4f6;color:var(--text-muted)}
+      /* Section catégorie dans la grille */
+      .cat-section{margin-bottom:14px}
+      .cat-section-title{font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:6px 2px;border-bottom:2px solid var(--border);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+      .cat-section-title .count-badge{background:var(--bg);border:1px solid var(--border);padding:1px 7px;border-radius:10px;font-size:11px;color:var(--text-muted)}
     </style>
     <div id="pos-grid">
-      <div id="pos-produits">
-        <div class="search-bar" style="justify-content:space-between">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="pos-search" placeholder="Rechercher..." oninput="filterPos()" style="max-width:200px">
-            <select id="pos-cat" onchange="filterPos()" style="max-width:160px"><option value="">Toutes catégories</option></select>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;color:var(--text-muted);font-weight:600">Prix :</span>
-            <button class="pv-btn active-pv" data-pv="1" onclick="setPvNiveau(1)" title="Prix +25%">PV1 <span class="pv-badge pv1-badge">+25%</span></button>
-            <button class="pv-btn" data-pv="2" onclick="setPvNiveau(2)" title="Prix +50%">PV2 <span class="pv-badge pv2-badge">+50%</span></button>
-            <button class="pv-btn" data-pv="3" onclick="setPvNiveau(3)" title="Prix +100%">PV3 <span class="pv-badge pv3-badge">+100%</span></button>
+      <div id="pos-produits" style="display:flex;flex-direction:column;overflow:hidden">
+        <!-- Barre du haut : recherche + niveau de prix -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 0 8px;flex-shrink:0;flex-wrap:wrap">
+          <input type="text" id="pos-search" placeholder="🔍 Rechercher un produit..." oninput="filterPos()" style="flex:1;min-width:160px;max-width:280px">
+          <div style="display:flex;align-items:center;gap:5px">
+            <span style="font-size:11px;color:var(--text-muted);font-weight:600;white-space:nowrap">Prix :</span>
+            <button class="pv-btn active-pv" data-pv="1" onclick="setPvNiveau(1)">PV1 <span class="pv-badge pv1-badge">+25%</span></button>
+            <button class="pv-btn" data-pv="2" onclick="setPvNiveau(2)">PV2 <span class="pv-badge pv2-badge">+50%</span></button>
+            <button class="pv-btn" data-pv="3" onclick="setPvNiveau(3)">PV3 <span class="pv-badge pv3-badge">+100%</span></button>
           </div>
         </div>
-        <div class="pos-produit-grid" id="pos-cards"></div>
+        <!-- Onglets catégories -->
+        <div class="cat-tabs" id="cat-tabs"></div>
+        <!-- Grille produits -->
+        <div id="pos-cards" style="overflow-y:auto;flex:1;padding:2px 0"></div>
       </div>
       <div id="pos-panier">
         <div style="padding:11px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px">
@@ -657,24 +671,99 @@ async function pagePos(){
         </div>
       </div>
     </div>`;
-  [posProds, posCats] = await Promise.all([api(`/produits?magasin_id=${currentMagasinId}`), api(`/produits/categories?magasin_id=${currentMagasinId}`)]);
-  const cs = document.getElementById('pos-cat');
-  posCats.forEach(c=>cs.innerHTML+=`<option value="${c.id}">${c.nom}</option>`);
+  [posProds, posCats] = await Promise.all([
+    api(`/produits?magasin_id=${currentMagasinId}`),
+    api(`/produits/categories?magasin_id=${currentMagasinId}`)
+  ]);
+  buildCatTabs();
+  filterPos();
+}
+
+let posCatActive = ''; // '' = Tous
+
+function buildCatTabs() {
+  const tabs = document.getElementById('cat-tabs');
+  if(!tabs) return;
+  // Compter produits par catégorie
+  const counts = {};
+  posProds.forEach(p => {
+    const k = p.categorie_id || '__none__';
+    counts[k] = (counts[k]||0) + 1;
+  });
+  // Filtrer catégories qui ont des produits
+  const catsAvecProduits = posCats.filter(c => counts[c.id]);
+  const icons = {
+    'Peinture':'🎨','Plomberie':'🚿','Électricité':'⚡','Outils':'🔨',
+    'Sanitaire':'🚽','Carreaux':'🟫','Construction':'🏗️','Tuyauterie':'🔧',
+    'Quincaillerie':'🔩','Gaz':'🔥','Ventilation':'💨','Colle':'🧴',
+    'Machines':'⚙️','Bois':'🪵','Visserie':'🔩','Autre':'📦'
+  };
+  tabs.innerHTML = `
+    <div class="cat-tab active" onclick="setCatActive('',this)">
+      🛒 Tous <span class="cat-count">${posProds.length}</span>
+    </div>
+    ${catsAvecProduits.map(c=>`
+      <div class="cat-tab" onclick="setCatActive('${c.id}',this)">
+        ${icons[c.nom]||'📦'} ${c.nom} <span class="cat-count">${counts[c.id]||0}</span>
+      </div>`).join('')}`;
+}
+
+function setCatActive(id, el) {
+  posCatActive = id;
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
   filterPos();
 }
 
 function filterPos(){
   const s=(document.getElementById('pos-search')?.value||'').toLowerCase();
-  const c=document.getElementById('pos-cat')?.value||'';
   const pvLabel=['','PV1','PV2','PV3'][pvNiveau];
   const pvClass=['','pv1-badge','pv2-badge','pv3-badge'][pvNiveau];
-  const f=posProds.filter(p=>(!s||p.nom.toLowerCase().includes(s)||(p.code||'').toLowerCase().includes(s))&&(!c||p.categorie_id==c));
-  document.getElementById('pos-cards').innerHTML=f.map(p=>`
-    <div class="pos-card" onclick="addPanier(${p.id})" style="${p.quantite<=0?'opacity:.5':''}">
-      <div class="nom">${p.nom}</div>
-      <div class="prix">${fmt(getPrixProduit(p))} <span class="pv-badge ${pvClass}" style="font-size:9px">${pvLabel}</span></div>
-      <div class="stock">Stock: ${p.quantite} ${p.unite}</div>
-    </div>`).join('')||'<p class="text-muted" style="padding:16px">Aucun produit</p>';
+
+  // Filtrer par recherche texte
+  const filtered = posProds.filter(p =>
+    (!s || p.nom.toLowerCase().includes(s) || (p.code||'').toLowerCase().includes(s))
+  );
+
+  if(!filtered.length) {
+    document.getElementById('pos-cards').innerHTML = '<p class="text-muted" style="padding:20px;text-align:center">Aucun produit trouvé</p>';
+    return;
+  }
+
+  // Si catégorie active sélectionnée : afficher juste cette catégorie
+  if(posCatActive) {
+    const f = filtered.filter(p => p.categorie_id == posCatActive);
+    document.getElementById('pos-cards').innerHTML = f.length
+      ? `<div class="pos-produit-grid">${f.map(p=>posCard(p,pvLabel,pvClass)).join('')}</div>`
+      : '<p class="text-muted" style="padding:20px;text-align:center">Aucun produit dans cette catégorie</p>';
+    return;
+  }
+
+  // Sinon : grouper par catégorie
+  const grouped = {};
+  filtered.forEach(p => {
+    const key = p.categorie_nom || 'Sans catégorie';
+    if(!grouped[key]) grouped[key] = [];
+    grouped[key].push(p);
+  });
+
+  document.getElementById('pos-cards').innerHTML = Object.entries(grouped).map(([cat, prods]) => `
+    <div class="cat-section">
+      <div class="cat-section-title">
+        📦 ${cat} <span class="count-badge">${prods.length}</span>
+      </div>
+      <div class="pos-produit-grid">${prods.map(p=>posCard(p,pvLabel,pvClass)).join('')}</div>
+    </div>`).join('');
+}
+
+function posCard(p, pvLabel, pvClass) {
+  return `<div class="pos-card" onclick="addPanier(${p.id})" style="${p.quantite<=0?'opacity:.5;filter:grayscale(.5)':''}">
+    <div class="nom">${p.nom}</div>
+    <div class="prix">${fmt(getPrixProduit(p))} <span class="pv-badge ${pvClass}" style="font-size:9px">${pvLabel}</span></div>
+    <div class="stock" style="color:${p.quantite<=0?'var(--danger)':p.quantite<=p.quantite_min?'var(--warning)':'var(--text-muted)'}">
+      ${p.quantite<=0?'⛔ Épuisé':'Stock: '+p.quantite+' '+p.unite}
+    </div>
+  </div>`;
 }
 
 function addPanier(id){

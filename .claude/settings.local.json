@@ -40,7 +40,10 @@
       "Bash(find /var/folders /tmp ~/Downloads ~/Desktop -name \"*.png\" -o -name \"*.jpg\" -o -name \"*.jpeg\" 2>/dev/null | grep -i \"ya\\\\|materiels\\\\|logo\" | head -10)",
       "Bash(xargs ls -lt)",
       "Bash(git pull *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(xargs kill -9)",
+      "Bash(curl -s \"http://localhost:8000/api/produits?magasin_id=1\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); cats=set\\(p['categorie_nom'] for p in d if p['categorie_nom']\\); print\\(f'{len\\(d\\)} produits, {len\\(cats\\)} catégories:', sorted\\(cats\\)\\)\")"
     ]
   }
 }
