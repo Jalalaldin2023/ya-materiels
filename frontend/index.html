@@ -582,16 +582,57 @@ async function pageDashboardConsolide() {
 
 // ── POS ───────────────────────────────────────────────────────────────────────
 let panier=[], posProds=[], posCats=[];
+// Niveau de prix actif : 1=PV1(+25%), 2=PV2(+50%), 3=PV3(+100%)
+let pvNiveau = 1;
+
+function getPrixProduit(p) {
+  if(pvNiveau===2) return p.prix_vente2 || p.prix_vente;
+  if(pvNiveau===3) return p.prix_vente3 || p.prix_vente;
+  return p.prix_vente;
+}
+
+function setPvNiveau(n) {
+  pvNiveau = n;
+  document.querySelectorAll('.pv-btn').forEach(b => {
+    b.classList.toggle('active-pv', parseInt(b.dataset.pv)===n);
+  });
+  // Mettre à jour les prix dans le panier selon le nouveau niveau
+  panier = panier.map(it => {
+    const prod = posProds.find(p=>p.id===it.id);
+    if(prod) it.prix = getPrixProduit(prod);
+    return it;
+  });
+  filterPos();
+  renderPanier();
+}
+
 async function pagePos(){
   if(!currentMagasinId){noStore();return;}
+  pvNiveau = 1;
   const content=document.getElementById('content');
   content.style.padding='14px';
   content.innerHTML=`
+    <style>
+      .pv-btn{padding:6px 14px;border-radius:6px;border:2px solid var(--border);background:#fff;cursor:pointer;font-size:12px;font-weight:700;transition:all .15s}
+      .pv-btn.active-pv{background:var(--primary);color:#fff;border-color:var(--primary)}
+      .pv-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px}
+      .pv1-badge{background:#dbeafe;color:#1e40af}
+      .pv2-badge{background:#fef9c3;color:#854d0e}
+      .pv3-badge{background:#fce7f3;color:#9d174d}
+    </style>
     <div id="pos-grid">
       <div id="pos-produits">
-        <div class="search-bar">
-          <input type="text" id="pos-search" placeholder="Rechercher un produit..." oninput="filterPos()">
-          <select id="pos-cat" onchange="filterPos()"><option value="">Toutes catégories</option></select>
+        <div class="search-bar" style="justify-content:space-between">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="pos-search" placeholder="Rechercher..." oninput="filterPos()" style="max-width:200px">
+            <select id="pos-cat" onchange="filterPos()" style="max-width:160px"><option value="">Toutes catégories</option></select>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px;color:var(--text-muted);font-weight:600">Prix :</span>
+            <button class="pv-btn active-pv" data-pv="1" onclick="setPvNiveau(1)" title="Prix +25%">PV1 <span class="pv-badge pv1-badge">+25%</span></button>
+            <button class="pv-btn" data-pv="2" onclick="setPvNiveau(2)" title="Prix +50%">PV2 <span class="pv-badge pv2-badge">+50%</span></button>
+            <button class="pv-btn" data-pv="3" onclick="setPvNiveau(3)" title="Prix +100%">PV3 <span class="pv-badge pv3-badge">+100%</span></button>
+          </div>
         </div>
         <div class="pos-produit-grid" id="pos-cards"></div>
       </div>
@@ -625,10 +666,13 @@ async function pagePos(){
 function filterPos(){
   const s=(document.getElementById('pos-search')?.value||'').toLowerCase();
   const c=document.getElementById('pos-cat')?.value||'';
+  const pvLabel=['','PV1','PV2','PV3'][pvNiveau];
+  const pvClass=['','pv1-badge','pv2-badge','pv3-badge'][pvNiveau];
   const f=posProds.filter(p=>(!s||p.nom.toLowerCase().includes(s)||(p.code||'').toLowerCase().includes(s))&&(!c||p.categorie_id==c));
   document.getElementById('pos-cards').innerHTML=f.map(p=>`
     <div class="pos-card" onclick="addPanier(${p.id})" style="${p.quantite<=0?'opacity:.5':''}">
-      <div class="nom">${p.nom}</div><div class="prix">${fmt(p.prix_vente)}</div>
+      <div class="nom">${p.nom}</div>
+      <div class="prix">${fmt(getPrixProduit(p))} <span class="pv-badge ${pvClass}" style="font-size:9px">${pvLabel}</span></div>
       <div class="stock">Stock: ${p.quantite} ${p.unite}</div>
     </div>`).join('')||'<p class="text-muted" style="padding:16px">Aucun produit</p>';
 }
@@ -636,15 +680,23 @@ function filterPos(){
 function addPanier(id){
   const p=posProds.find(x=>x.id===id);
   if(!p||p.quantite<=0){toast('Stock épuisé !','danger');return;}
+  const prix=getPrixProduit(p);
   const ex=panier.find(x=>x.id===id);
   if(ex){if(ex.qty>=p.quantite){toast('Stock insuffisant !','danger');return;}ex.qty++;}
-  else panier.push({id,nom:p.nom,prix:p.prix_vente,qty:1,max:p.quantite});
+  else panier.push({id,nom:p.nom,prix,pv:pvNiveau,qty:1,max:p.quantite,
+    pv1:p.prix_vente, pv2:p.prix_vente2||p.prix_vente, pv3:p.prix_vente3||p.prix_vente});
   renderPanier();
 }
+
 function renderPanier(){
+  const pvLabels=['','PV1','PV2','PV3'];
+  const pvClasses=['','pv1-badge','pv2-badge','pv3-badge'];
   document.getElementById('panier-items').innerHTML=panier.map((it,i)=>`
     <div class="panier-item">
-      <div class="nom">${it.nom}</div>
+      <div class="nom" style="flex:1">
+        ${it.nom}
+        <span class="pv-badge ${pvClasses[it.pv]}">${pvLabels[it.pv]}</span>
+      </div>
       <div class="qty-ctrl">
         <button onclick="chgQ(${i},-1)">−</button>
         <span class="qty">${it.qty}</span>
@@ -680,7 +732,7 @@ async function ouvrirPaiement(){
       <div class="form-row">
         <div class="form-group"><label>Client</label>
           <select id="pay-client"><option value="">Client comptant</option>
-          ${clients.map(c=>`<option value="${c.id}">${c.nom}</option>`).join('')}</select>
+          ${clients.map(c=>`<option value="${c.id}">${c.nom} ${c.solde>0?'⚠️':''}</option>`).join('')}</select>
         </div>
         <div class="form-group"><label>Mode de paiement</label>
           <select id="pay-mode">
@@ -695,13 +747,22 @@ async function ouvrirPaiement(){
       <div class="form-group"><label>Montant reçu</label>
         <input type="number" id="pay-rec" value="${total}" min="0" oninput="calcMon(${total})" style="font-size:18px;font-weight:700">
       </div>
-      <div style="text-align:center;padding:10px;background:#f9fafb;border-radius:8px;font-size:13px">
+      <div style="text-align:center;padding:10px;background:#f9fafb;border-radius:8px;font-size:13px;margin-bottom:10px">
         Monnaie à rendre: <strong id="monnaie">${fmt(0)}</strong>
+      </div>
+      <div style="display:flex;gap:8px;padding:10px;background:#eff6ff;border-radius:8px;font-size:12px;align-items:center">
+        <span>📄 Document :</span>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" name="doc-type" value="recu" checked> Reçu simple
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" name="doc-type" value="facture"> Facture professionnelle (gros client)
+        </label>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
-      <button class="btn btn-success" onclick="confirmerVente(${total},${rem})">✅ Valider</button>
+      <button class="btn btn-success" style="font-size:14px" onclick="confirmerVente(${total},${rem})">✅ Valider la vente</button>
     </div>
   </div>`);
 }
@@ -712,6 +773,7 @@ async function confirmerVente(total,rem){
   const clientId=document.getElementById('pay-client')?.value||null;
   const mode=document.getElementById('pay-mode')?.value||'especes';
   const rec=parseFloat(document.getElementById('pay-rec')?.value)||total;
+  const docType=document.querySelector('input[name="doc-type"]:checked')?.value||'recu';
   const payload={
     magasin_id:currentMagasinId, caissier_id:currentUser.id,
     client_id:clientId?parseInt(clientId):null,
@@ -720,11 +782,16 @@ async function confirmerVente(total,rem){
   };
   try{
     const res=await api('/ventes',{method:'POST',body:payload});
+    // Trouver infos client si sélectionné
+    const clients=clientId ? await api(`/clients?magasin_id=${currentMagasinId}`) : [];
+    const client=clients.find(c=>c.id==clientId)||null;
     closeModal(); toast(`✅ Vente ${res.numero} enregistrée !`);
     const snap=[...panier];
     panier=[]; renderPanier(); document.getElementById('remise').value=0;
+    pvNiveau=1; setPvNiveau(1);
     posProds=await api(`/produits?magasin_id=${currentMagasinId}`); filterPos();
-    printReceipt(res,snap,total,mode,rec);
+    if(docType==='facture') printFacture(res,snap,total,rem,mode,rec,client);
+    else printReceipt(res,snap,total,mode,rec);
   }catch(e){}
 }
 
@@ -755,6 +822,131 @@ function printReceipt(res,lignes,total,mode,recu){
   w.print();
 }
 
+function printFacture(res, lignes, total, remise, mode, recu, client) {
+  const m = currentMagasin() || {};
+  const date = new Date().toLocaleDateString('fr-FR');
+  const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1a56db';
+  const w = window.open('', '_blank', 'width=900,height=750');
+  w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Facture ${res.numero}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 13px; color: #1f2937; background: #fff; padding: 32px; max-width: 800px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 3px solid ${primary}; }
+    .logo-block img { height: 70px; object-fit: contain; }
+    .logo-block h1 { font-size: 22px; font-weight: 800; color: ${primary}; margin-top: 6px; }
+    .logo-block p { font-size: 11px; color: #6b7280; }
+    .facture-title { text-align: right; }
+    .facture-title h2 { font-size: 28px; font-weight: 800; color: ${primary}; letter-spacing: 2px; }
+    .facture-title .num { font-size: 14px; color: #374151; margin-top: 4px; }
+    .facture-title .date { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .parties { display: flex; gap: 32px; margin-bottom: 28px; }
+    .partie { flex: 1; padding: 16px; border-radius: 8px; }
+    .partie.vendeur { background: #f9fafb; border-left: 4px solid ${primary}; }
+    .partie.acheteur { background: #eff6ff; border-left: 4px solid #93c5fd; }
+    .partie h4 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #6b7280; margin-bottom: 8px; letter-spacing: 0.05em; }
+    .partie p { font-size: 13px; line-height: 1.7; }
+    .partie strong { font-size: 15px; color: #111827; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    thead th { background: ${primary}; color: white; padding: 10px 12px; text-align: left; font-size: 12px; font-weight: 600; }
+    thead th:last-child, thead th:nth-child(3), thead th:nth-child(2) { text-align: right; }
+    tbody tr:nth-child(even) { background: #f9fafb; }
+    tbody td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    tbody td:last-child, tbody td:nth-child(3), tbody td:nth-child(2) { text-align: right; }
+    .totaux { width: 280px; margin-left: auto; margin-bottom: 24px; }
+    .totaux .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #e5e7eb; }
+    .totaux .row.total { font-size: 16px; font-weight: 800; color: ${primary}; border-bottom: 2px solid ${primary}; padding: 10px 0; }
+    .totaux .row.regle { color: #0e9f6e; font-weight: 600; }
+    .totaux .row.reste { color: #e02424; font-weight: 600; }
+    .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: flex-end; }
+    .footer .mention { font-size: 11px; color: #6b7280; max-width: 400px; line-height: 1.6; }
+    .footer .signature { text-align: center; }
+    .footer .signature .line { width: 200px; border-top: 1px solid #374151; padding-top: 8px; font-size: 12px; color: #374151; margin-top: 40px; }
+    .mode-pmt { display: inline-block; background: #d1fae5; color: #065f46; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    @media print { body { padding: 16px; } }
+  </style></head><body>
+  <!-- EN-TÊTE -->
+  <div class="header">
+    <div class="logo-block">
+      ${m.logo ? `<img src="${m.logo}" alt="Logo">` : ''}
+      <h1>${m.nom || 'Ya Matériels'}</h1>
+      <p>${m.slogan || ''}</p>
+    </div>
+    <div class="facture-title">
+      <h2>FACTURE</h2>
+      <div class="num">N° ${res.numero}</div>
+      <div class="date">Date : ${date}</div>
+      <div class="date">Mode : <span class="mode-pmt">${mode}</span></div>
+    </div>
+  </div>
+
+  <!-- VENDEUR / ACHETEUR -->
+  <div class="parties">
+    <div class="partie vendeur">
+      <h4>Vendeur</h4>
+      <p><strong>${m.nom || 'Ya Matériels'}</strong><br>
+      ${m.adresse ? m.adresse + '<br>' : ''}
+      ${m.telephone ? 'Tél : ' + m.telephone + '<br>' : ''}
+      ${m.email ? m.email + '<br>' : ''}
+      ${m.rccm ? 'RCCM : ' + m.rccm + '<br>' : ''}
+      ${m.nif ? 'NIF : ' + m.nif : ''}</p>
+    </div>
+    <div class="partie acheteur">
+      <h4>Client / Acheteur</h4>
+      <p><strong>${client ? client.nom : 'Client comptant'}</strong><br>
+      ${client?.telephone ? 'Tél : ' + client.telephone + '<br>' : ''}
+      ${client?.email ? client.email + '<br>' : ''}
+      ${client?.adresse ? client.adresse : ''}</p>
+    </div>
+  </div>
+
+  <!-- TABLEAU DES ARTICLES -->
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px">N°</th>
+        <th>Désignation</th>
+        <th style="width:80px">Qté</th>
+        <th style="width:120px">Prix unit.</th>
+        <th style="width:130px">Montant</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${lignes.map((it,i) => `
+        <tr>
+          <td>${i+1}</td>
+          <td>${it.nom}</td>
+          <td style="text-align:right">${it.qty}</td>
+          <td style="text-align:right">${fmt(it.prix)}</td>
+          <td style="text-align:right"><strong>${fmt(it.qty*it.prix)}</strong></td>
+        </tr>`).join('')}
+    </tbody>
+  </table>
+
+  <!-- TOTAUX -->
+  <div class="totaux">
+    <div class="row"><span>Sous-total</span><span>${fmt(lignes.reduce((s,i)=>s+i.qty*i.prix,0))}</span></div>
+    ${remise>0 ? `<div class="row"><span>Remise</span><span>- ${fmt(remise)}</span></div>` : ''}
+    <div class="row total"><span>TOTAL TTC</span><span>${fmt(total)}</span></div>
+    <div class="row regle"><span>✅ Réglé</span><span>${fmt(Math.min(recu,total))}</span></div>
+    ${total > recu ? `<div class="row reste"><span>⚠️ Reste à payer</span><span>${fmt(total-recu)}</span></div>` : ''}
+  </div>
+
+  <!-- PIED DE PAGE -->
+  <div class="footer">
+    <div class="mention">
+      <strong>Conditions :</strong> Les marchandises vendues ne sont ni reprises ni échangées.<br>
+      ${m.recu_pied || 'Merci pour votre confiance.'}
+    </div>
+    <div class="signature">
+      <div class="line">Signature & Cachet</div>
+    </div>
+  </div>
+
+  <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+}
+
 // ── VENTES ────────────────────────────────────────────────────────────────────
 async function pageVentes(){if(!currentMagasinId){noStore();return;}renderVentes();}
 async function renderVentes(s='',dd='',df=''){
@@ -779,8 +971,11 @@ async function renderVentes(s='',dd='',df=''){
             <td>${v.caissier_nom||'-'}</td><td>${fmt(v.total)}</td><td>${fmt(v.montant_paye)}</td>
             <td><span class="badge ${v.statut==='payee'?'badge-success':'badge-warning'}">${v.statut}</span></td>
             <td>${fmtDT(v.created_at)}</td>
-            <td><button class="btn-icon" onclick="voirVente(${v.id})">👁</button>
-            ${isAdmin()?`<button class="btn-icon" onclick="annulerVente(${v.id},'${v.numero}')">❌</button>`:''}</td>
+            <td>
+              <button class="btn-icon" title="Voir détail" onclick="voirVente(${v.id})">👁</button>
+              <button class="btn-icon" title="Imprimer facture" onclick="imprimerFactureVente(${v.id})">🧾</button>
+              ${canAdmin()?`<button class="btn-icon" title="Annuler" onclick="annulerVente(${v.id},'${v.numero}')">❌</button>`:''}
+            </td>
           </tr>`).join('')||'<tr><td colspan="8" class="text-muted" style="text-align:center;padding:16px">Aucune vente</td></tr>'}
         </tbody>
       </table></div>
@@ -809,6 +1004,20 @@ async function voirVente(id){
     <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Fermer</button></div>
   </div>`);
 }
+async function imprimerFactureVente(id) {
+  const v = await api(`/ventes/${id}`);
+  const m = currentMagasin() || {};
+  // Construire lignes depuis les détails de la vente
+  const lignes = v.lignes.map(l => ({nom:l.produit_nom, qty:l.quantite, prix:l.prix_unitaire}));
+  // Récupérer infos client si disponible
+  let client = null;
+  if(v.client_id) {
+    try { client = await api(`/clients/${v.client_id}`); } catch(e){}
+  }
+  const res = {numero: v.numero};
+  printFacture(res, lignes, v.total, v.remise, v.mode_paiement, v.montant_paye, client);
+}
+
 async function annulerVente(id,num){
   if(!confirm(`Annuler la vente ${num} ?`))return;
   await api(`/ventes/${id}`,{method:'DELETE'}); toast('Vente annulée'); renderVentes();
@@ -848,6 +1057,18 @@ async function renderProduits(s='',cid=0){
       </table></div>
     </div>`;
 }
+function calcPVAuto() {
+  const pa = parseFloat(document.getElementById('pp_pa')?.value) || 0;
+  if(!pa) return;
+  const r = v => Math.round(v / 100) * 100; // arrondi à 100 FCFA
+  const pv1 = document.getElementById('pp_pv');
+  const pv2 = document.getElementById('pp_pv2');
+  const pv3 = document.getElementById('pp_pv3');
+  if(pv1 && (!pv1.value || pv1.value=='0')) pv1.value = r(pa * 1.25);
+  if(pv2) pv2.value = r(pa * 1.50);
+  if(pv3) pv3.value = r(pa * 2.00);
+}
+
 async function modalProduit(id=null){
   const fourns=await api(`/fournisseurs?magasin_id=${currentMagasinId}`);
   let p={code:'',nom:'',description:'',categorie_id:'',fournisseur_id:'',prix_achat:0,prix_vente:0,quantite:0,quantite_min:5,unite:'pcs'};
@@ -867,9 +1088,16 @@ async function modalProduit(id=null){
           <select id="pp_fourn"><option value="">-</option>${fourns.map(f=>`<option value="${f.id}" ${f.id==p.fournisseur_id?'selected':''}>${f.nom}</option>`).join('')}</select>
         </div>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+        <div class="form-group"><label>Prix d'achat (PA)</label><input type="number" id="pp_pa" value="${p.prix_achat}" min="0" oninput="calcPVAuto()"></div>
+        <div class="form-group"><label>🔵 PV1 — +25% *</label><input type="number" id="pp_pv" value="${p.prix_vente}" min="0"></div>
+        <div class="form-group"><label>🟡 PV2 — +50%</label><input type="number" id="pp_pv2" value="${p.prix_vente2||0}" min="0"></div>
+        <div class="form-group"><label>🩷 PV3 — +100%</label><input type="number" id="pp_pv3" value="${p.prix_vente3||0}" min="0"></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin:-8px 0 12px;padding:8px;background:#f0f9ff;border-radius:6px">
+        💡 Entrez le prix d'achat → les 3 niveaux de prix se calculent automatiquement. PV1 = tarif gros client. PV3 = tarif détail.
+      </div>
       <div class="form-row-3">
-        <div class="form-group"><label>Prix d'achat</label><input type="number" id="pp_pa" value="${p.prix_achat}" min="0"></div>
-        <div class="form-group"><label>Prix de vente *</label><input type="number" id="pp_pv" value="${p.prix_vente}" min="0"></div>
         <div class="form-group"><label>Unité</label><input id="pp_u" value="${p.unite||'pcs'}"></div>
       </div>
       <div class="form-row">
@@ -890,6 +1118,8 @@ async function saveProduit(id){
     fournisseur_id:parseInt(document.getElementById('pp_fourn').value)||null,
     prix_achat:parseFloat(document.getElementById('pp_pa').value)||0,
     prix_vente:parseFloat(document.getElementById('pp_pv').value)||0,
+    prix_vente2:parseFloat(document.getElementById('pp_pv2').value)||0,
+    prix_vente3:parseFloat(document.getElementById('pp_pv3').value)||0,
     quantite:parseInt(document.getElementById('pp_q')?.value)||0,
     quantite_min:parseInt(document.getElementById('pp_qm').value)||5,
     unite:document.getElementById('pp_u').value||'pcs',magasin_id:currentMagasinId};

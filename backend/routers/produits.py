@@ -13,7 +13,9 @@ class ProduitIn(BaseModel):
     categorie_id: Optional[int] = None
     fournisseur_id: Optional[int] = None
     prix_achat: float = 0
-    prix_vente: float
+    prix_vente: float          # PV1 (+25%)
+    prix_vente2: float = 0     # PV2 (+50%)
+    prix_vente3: float = 0     # PV3 (+100%)
     quantite: int = 0
     quantite_min: int = 5
     unite: str = "pcs"
@@ -68,9 +70,12 @@ def get_produit(pid: int):
 def create_produit(p: ProduitIn):
     db = get_db()
     try:
+        # Calculer PV2 et PV3 auto si non fournis
+        pv2 = p.prix_vente2 or round(p.prix_achat * 1.5 / 100) * 100
+        pv3 = p.prix_vente3 or round(p.prix_achat * 2.0 / 100) * 100
         cur = db.execute(
-            "INSERT INTO produits (code,nom,description,categorie_id,fournisseur_id,prix_achat,prix_vente,quantite,quantite_min,unite,magasin_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (p.code, p.nom, p.description, p.categorie_id, p.fournisseur_id, p.prix_achat, p.prix_vente, p.quantite, p.quantite_min, p.unite, p.magasin_id)
+            "INSERT INTO produits (code,nom,description,categorie_id,fournisseur_id,prix_achat,prix_vente,prix_vente2,prix_vente3,quantite,quantite_min,unite,magasin_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (p.code, p.nom, p.description, p.categorie_id, p.fournisseur_id, p.prix_achat, p.prix_vente, pv2, pv3, p.quantite, p.quantite_min, p.unite, p.magasin_id)
         )
         pid = cur.lastrowid
         if p.quantite > 0:
@@ -91,9 +96,11 @@ def create_produit(p: ProduitIn):
 def update_produit(pid: int, p: ProduitIn):
     db = get_db()
     try:
+        pv2 = p.prix_vente2 or round(p.prix_achat * 1.5 / 100) * 100
+        pv3 = p.prix_vente3 or round(p.prix_achat * 2.0 / 100) * 100
         db.execute(
-            "UPDATE produits SET code=?,nom=?,description=?,categorie_id=?,fournisseur_id=?,prix_achat=?,prix_vente=?,quantite_min=?,unite=?,updated_at=datetime('now') WHERE id=?",
-            (p.code, p.nom, p.description, p.categorie_id, p.fournisseur_id, p.prix_achat, p.prix_vente, p.quantite_min, p.unite, pid)
+            "UPDATE produits SET code=?,nom=?,description=?,categorie_id=?,fournisseur_id=?,prix_achat=?,prix_vente=?,prix_vente2=?,prix_vente3=?,quantite_min=?,unite=?,updated_at=datetime('now') WHERE id=?",
+            (p.code, p.nom, p.description, p.categorie_id, p.fournisseur_id, p.prix_achat, p.prix_vente, pv2, pv3, p.quantite_min, p.unite, pid)
         )
         db.commit()
         return {"message": "Produit mis à jour"}
