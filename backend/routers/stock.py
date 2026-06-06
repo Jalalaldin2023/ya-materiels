@@ -41,6 +41,43 @@ def alertes_stock(magasin_id: int):
     return [dict(r) for r in rows]
 
 
+@router.get("/rapport")
+def rapport_stock(magasin_id: int):
+    """Rapport stock : entrées, sorties, stock final par produit."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT
+            p.id, p.code, p.nom, p.unite,
+            c.nom as categorie,
+            p.prix_achat,
+            p.prix_vente  as pv1,
+            p.prix_vente2 as pv2,
+            p.prix_vente3 as pv3,
+            p.quantite    as stock_final,
+            p.quantite_min,
+            COALESCE(SUM(CASE WHEN m.type='entree' THEN m.quantite ELSE 0 END), 0) as total_entrees,
+            COALESCE(SUM(CASE WHEN m.type='sortie' THEN m.quantite ELSE 0 END), 0) as total_sorties
+        FROM produits p
+        LEFT JOIN categories c ON p.categorie_id = c.id
+        LEFT JOIN mouvements_stock m ON m.produit_id = p.id AND m.magasin_id = p.magasin_id
+        WHERE p.magasin_id = ?
+        GROUP BY p.id
+        ORDER BY c.nom, p.nom
+    """, (magasin_id,)).fetchall()
+    db.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        # Coût de revient = prix_achat × stock_final
+        d['cout_revient'] = (d['prix_achat'] or 0) * (d['stock_final'] or 0)
+        # Valeur stock PV1
+        d['valeur_pv1'] = (d['pv1'] or 0) * (d['stock_final'] or 0)
+        # Marge brute PV1
+        d['marge_pv1'] = round(((d['pv1'] or 0) - (d['prix_achat'] or 0)) / (d['pv1'] or 1) * 100, 1) if d['pv1'] else 0
+        result.append(d)
+    return result
+
+
 @router.post("/ajustement")
 def ajuster_stock(a: AjustementIn):
     db = get_db()

@@ -1234,15 +1234,56 @@ async function annulerVente(id,num){
 let categories=[];
 async function pageProduits(){if(!isGest()){restricted();return;}if(!currentMagasinId){noStore();return;}
   categories=await api(`/produits/categories?magasin_id=${currentMagasinId}`); renderProduits();}
+
 async function renderProduits(s='',cid=0){
   let url=`/produits?magasin_id=${currentMagasinId}&search=${encodeURIComponent(s)}`;
   if(cid)url+=`&categorie_id=${cid}`;
   const data=await api(url);
+
+  // Totaux
+  const totalCR  = data.reduce((sum,p)=>(p.prix_achat||0)*(p.quantite||0)+sum,0);
+  const totalPV1 = data.reduce((sum,p)=>(p.prix_vente||0)*(p.quantite||0)+sum,0);
+  const margeGlob = totalPV1>0 ? Math.round((totalPV1-totalCR)/totalPV1*100) : 0;
+
   document.getElementById('content').innerHTML=`
+    <style>
+      .prod-tabs{display:flex;gap:3px;border-bottom:2px solid var(--border);margin-bottom:14px}
+      .prod-tab{padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text-muted);border-bottom:3px solid transparent;margin-bottom:-2px}
+      .prod-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+      .prod-section{display:none}.prod-section.active{display:block}
+      .marge-bar{height:6px;border-radius:3px;background:#e5e7eb;overflow:hidden;width:80px;display:inline-block;vertical-align:middle}
+      .marge-bar-fill{height:100%;border-radius:3px;background:var(--success)}
+    </style>
     <div class="card">
-      <div class="section-header"><h3>Catalogue (${data.length})</h3>
+      <div class="section-header">
+        <h3>Catalogue (${data.length} produits)</h3>
         <button class="btn btn-primary" onclick="modalProduit()">+ Nouveau produit</button>
       </div>
+
+      <!-- Totaux rapides -->
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="padding:10px 16px;background:#f9fafb;border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text-muted)">Coût de revient total</div>
+          <div style="font-size:17px;font-weight:700;color:var(--warning)">${fmt(totalCR)}</div>
+        </div>
+        <div style="padding:10px 16px;background:#f9fafb;border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text-muted)">Valeur stock (PV1)</div>
+          <div style="font-size:17px;font-weight:700;color:var(--success)">${fmt(totalPV1)}</div>
+        </div>
+        <div style="padding:10px 16px;background:#f9fafb;border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text-muted)">Marge brute globale</div>
+          <div style="font-size:17px;font-weight:700;color:var(--primary)">${margeGlob}%</div>
+        </div>
+      </div>
+
+      <!-- Onglets vue -->
+      <div class="prod-tabs">
+        <button class="prod-tab active" onclick="switchProdTab('prod-liste',this)">📋 Liste</button>
+        <button class="prod-tab" onclick="switchProdTab('prod-cout',this)">💰 Coût de revient</button>
+        <button class="prod-tab" onclick="switchProdTab('prod-prix',this)">🏷️ Grille de prix</button>
+      </div>
+
+      <!-- Filtres -->
       <div class="search-bar">
         <input type="text" id="p-s" placeholder="Nom ou code..." value="${s}" oninput="renderProduits(this.value,document.getElementById('p-c').value)">
         <select id="p-c" onchange="renderProduits(document.getElementById('p-s').value,this.value)">
@@ -1250,19 +1291,107 @@ async function renderProduits(s='',cid=0){
           ${categories.map(c=>`<option value="${c.id}" ${c.id==cid?'selected':''}>${c.nom}</option>`).join('')}
         </select>
       </div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Code</th><th>Nom</th><th>Catégorie</th><th>P.Achat</th><th>P.Vente</th><th>Stock</th><th></th></tr></thead>
-        <tbody>${data.map(p=>`
-          <tr>
-            <td><code>${p.code||'-'}</code></td><td>${p.nom}</td><td>${p.categorie_nom||'-'}</td>
-            <td>${fmt(p.prix_achat)}</td><td>${fmt(p.prix_vente)}</td>
-            <td>${stockBadge(p.quantite,p.quantite_min)}</td>
-            <td><button class="btn-icon" onclick="modalProduit(${p.id})">✏️</button>
-                <button class="btn-icon" onclick="delProduit(${p.id},'${p.nom.replace(/'/g,"\\'")}')">🗑</button></td>
-          </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;padding:16px" class="text-muted">Aucun produit</td></tr>'}
-        </tbody>
-      </table></div>
+
+      <!-- VUE LISTE STANDARD -->
+      <div id="prod-liste" class="prod-section active">
+        <div class="table-wrap"><table>
+          <thead><tr><th>Code</th><th>Nom</th><th>Catégorie</th><th>P.Achat</th><th>PV1 (+25%)</th><th>PV2 (+50%)</th><th>PV3 (+100%)</th><th>Stock</th><th></th></tr></thead>
+          <tbody>${data.map(p=>`
+            <tr>
+              <td><code>${p.code||'-'}</code></td>
+              <td><strong>${p.nom}</strong></td>
+              <td>${p.categorie_nom||'-'}</td>
+              <td>${fmt(p.prix_achat)}</td>
+              <td>${fmt(p.prix_vente)}</td>
+              <td>${fmt(p.prix_vente2)}</td>
+              <td>${fmt(p.prix_vente3)}</td>
+              <td>${stockBadge(p.quantite,p.quantite_min)}</td>
+              <td>
+                <button class="btn-icon" title="Modifier" onclick="modalProduit(${p.id})">✏️</button>
+                <button class="btn-icon" title="Supprimer" onclick="delProduit(${p.id},'${p.nom.replace(/'/g,"\\'")}')">🗑</button>
+              </td>
+            </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;padding:16px" class="text-muted">Aucun produit</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>
+
+      <!-- VUE COÛT DE REVIENT -->
+      <div id="prod-cout" class="prod-section">
+        <div class="table-wrap"><table>
+          <thead>
+            <tr>
+              <th>Produit</th><th>Catégorie</th><th>Unité</th>
+              <th style="text-align:right">Px Achat</th>
+              <th style="text-align:right">Stock</th>
+              <th style="text-align:right">Coût de revient</th>
+              <th style="text-align:right">PV1</th>
+              <th style="text-align:right">Marge PV1</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map(p=>{
+              const cr = (p.prix_achat||0)*(p.quantite||0);
+              const marge = p.prix_vente>0 ? Math.round((p.prix_vente-p.prix_achat)/p.prix_vente*100) : 0;
+              const margeColor = marge>=30?'var(--success)':marge>=15?'var(--warning)':'var(--danger)';
+              return `<tr>
+                <td><strong>${p.nom}</strong></td>
+                <td>${p.categorie_nom||'-'}</td>
+                <td>${p.unite}</td>
+                <td style="text-align:right">${fmt(p.prix_achat)}</td>
+                <td style="text-align:right">${p.quantite}</td>
+                <td style="text-align:right;font-weight:700;color:var(--warning)">${fmt(cr)}</td>
+                <td style="text-align:right">${fmt(p.prix_vente)}</td>
+                <td style="text-align:right">
+                  <span style="color:${margeColor};font-weight:700">${marge}%</span>
+                  <div class="marge-bar"><div class="marge-bar-fill" style="width:${Math.min(marge,100)}%;background:${margeColor}"></div></div>
+                </td>
+              </tr>`;
+            }).join('')||'<tr><td colspan="8" class="text-muted" style="text-align:center;padding:16px">Aucun produit</td></tr>'}
+          </tbody>
+          <tfoot>
+            <tr style="background:#f9fafb;font-weight:700">
+              <td colspan="5">TOTAL</td>
+              <td style="text-align:right;color:var(--warning)">${fmt(totalCR)}</td>
+              <td style="text-align:right;color:var(--success)">${fmt(totalPV1)}</td>
+              <td style="text-align:right;color:var(--primary)">${margeGlob}%</td>
+            </tr>
+          </tfoot>
+        </table></div>
+      </div>
+
+      <!-- VUE GRILLE DE PRIX -->
+      <div id="prod-prix" class="prod-section">
+        <div class="table-wrap"><table>
+          <thead>
+            <tr>
+              <th>Produit</th><th>Px Achat</th>
+              <th style="background:#dbeafe;color:#1e40af">PV1 (+25%)</th>
+              <th style="background:#fef9c3;color:#854d0e">PV2 (+50%)</th>
+              <th style="background:#fce7f3;color:#9d174d">PV3 (+100%)</th>
+              <th>Stock</th><th>Valeur (PV1)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map(p=>`
+              <tr>
+                <td><strong>${p.nom}</strong><br><small style="color:var(--text-muted)">${p.categorie_nom||''}</small></td>
+                <td>${fmt(p.prix_achat)}</td>
+                <td style="background:#f0f9ff;font-weight:600">${fmt(p.prix_vente)}</td>
+                <td style="background:#fefce8;font-weight:600">${fmt(p.prix_vente2)}</td>
+                <td style="background:#fdf2f8;font-weight:600">${fmt(p.prix_vente3)}</td>
+                <td>${stockBadge(p.quantite,p.quantite_min)}</td>
+                <td style="font-weight:600;color:var(--success)">${fmt((p.prix_vente||0)*(p.quantite||0))}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table></div>
+      </div>
     </div>`;
+}
+
+function switchProdTab(id,btn){
+  document.querySelectorAll('.prod-section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.prod-tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id)?.classList.add('active'); btn.classList.add('active');
 }
 function calcPVAuto() {
   const pa = parseFloat(document.getElementById('pp_pa')?.value) || 0;
@@ -1337,31 +1466,140 @@ async function saveProduit(id){
 async function delProduit(id,nom){if(!confirm(`Supprimer "${nom}" ?`))return;await api(`/produits/${id}`,{method:'DELETE'});toast('Supprimé');renderProduits();}
 
 // ── STOCK ─────────────────────────────────────────────────────────────────────
-async function pageStock(){if(!isGest()){restricted();return;}if(!currentMagasinId){noStore();return;}
-  const [alertes,mvts]=await Promise.all([api(`/stock/alertes?magasin_id=${currentMagasinId}`),api(`/stock/mouvements?magasin_id=${currentMagasinId}&limit=50`)]);
+async function pageStock(){
+  if(!isGest()){restricted();return;}
+  if(!currentMagasinId){noStore();return;}
+  const [alertes, mvts, rapport] = await Promise.all([
+    api(`/stock/alertes?magasin_id=${currentMagasinId}`),
+    api(`/stock/mouvements?magasin_id=${currentMagasinId}&limit=100`),
+    api(`/stock/rapport?magasin_id=${currentMagasinId}`)
+  ]);
+
+  // Totaux rapport
+  const totalEntrees  = rapport.reduce((s,r)=>s+r.total_entrees,0);
+  const totalSorties  = rapport.reduce((s,r)=>s+r.total_sorties,0);
+  const totalStockFin = rapport.reduce((s,r)=>s+r.stock_final,0);
+  const valeurStock   = rapport.reduce((s,r)=>s+r.cout_revient,0);
+
   document.getElementById('content').innerHTML=`
-    <div class="grid-2">
-      <div class="card">
-        <div class="section-header"><h3>⚠️ Alertes (${alertes.length})</h3>
-          <button class="btn btn-primary btn-sm" onclick="modalAdj()">+ Ajustement</button>
+    <style>
+      .stk-tabs{display:flex;gap:3px;border-bottom:2px solid var(--border);margin-bottom:14px}
+      .stk-tab{padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text-muted);border-bottom:3px solid transparent;margin-bottom:-2px}
+      .stk-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+      .stk-section{display:none}.stk-section.active{display:block}
+      .flow-row{display:grid;grid-template-columns:1fr 100px 100px 100px 110px;gap:0;font-size:13px;align-items:center;border-bottom:1px solid var(--border)}
+      .flow-row>div{padding:9px 12px}
+      .flow-row:hover>div{background:#f9fafb}
+      .flow-head{display:grid;grid-template-columns:1fr 100px 100px 100px 110px;background:#f9fafb;font-size:11px;font-weight:700;color:var(--text-muted)}
+      .flow-head>div{padding:7px 12px}
+      .nb-entree{color:#0e9f6e;font-weight:700;text-align:right}
+      .nb-sortie{color:#e02424;font-weight:700;text-align:right}
+      .nb-final{font-weight:700;text-align:right}
+      .nb-val{color:var(--warning);font-weight:600;text-align:right}
+    </style>
+
+    <!-- KPIs rapides -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+      <div class="card" style="padding:14px">
+        <div class="card-title">Total entrées</div>
+        <div style="font-size:22px;font-weight:700;color:#0e9f6e">${fmtN(totalEntrees)} u.</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div class="card-title">Total sorties</div>
+        <div style="font-size:22px;font-weight:700;color:#e02424">${fmtN(totalSorties)} u.</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div class="card-title">Stock final total</div>
+        <div style="font-size:22px;font-weight:700;color:var(--primary)">${fmtN(totalStockFin)} u.</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div class="card-title">Valeur stock (coût)</div>
+        <div style="font-size:22px;font-weight:700;color:var(--warning)">${fmt(valeurStock)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="stk-tabs" style="margin-bottom:0">
+          <button class="stk-tab active" onclick="switchStkTab('stk-flux',this)">📊 Entrées / Sorties / Stock final</button>
+          <button class="stk-tab" onclick="switchStkTab('stk-alertes',this)">⚠️ Alertes (${alertes.length})</button>
+          <button class="stk-tab" onclick="switchStkTab('stk-mvts',this)">📋 Mouvements récents</button>
         </div>
-        <table><thead><tr><th>Produit</th><th>Stock</th><th>Min</th><th></th></tr></thead>
+        <button class="btn btn-primary btn-sm" onclick="modalAdj()">+ Ajustement</button>
+      </div>
+
+      <!-- FLUX PAR PRODUIT -->
+      <div id="stk-flux" class="stk-section active">
+        <div class="flow-head">
+          <div>Produit / Catégorie</div>
+          <div style="text-align:right">➕ Entrées</div>
+          <div style="text-align:right">➖ Sorties</div>
+          <div style="text-align:right">📦 Stock final</div>
+          <div style="text-align:right">💰 Valeur</div>
+        </div>
+        ${rapport.map(r=>`
+          <div class="flow-row">
+            <div>
+              <div style="font-weight:600">${r.nom}</div>
+              <div style="font-size:11px;color:var(--text-muted)">${r.categorie||''} · ${r.unite}</div>
+            </div>
+            <div class="nb-entree">${r.total_entrees>0?'+'+fmtN(r.total_entrees):'—'}</div>
+            <div class="nb-sortie">${r.total_sorties>0?'-'+fmtN(r.total_sorties):'—'}</div>
+            <div class="nb-final">
+              ${stockBadge(r.stock_final, r.quantite_min)}
+            </div>
+            <div class="nb-val">${r.cout_revient>0?fmt(r.cout_revient):'—'}</div>
+          </div>`).join('')||'<div style="padding:20px;text-align:center;color:var(--text-muted)">Aucun produit</div>'}
+        <!-- TOTAL -->
+        <div style="display:grid;grid-template-columns:1fr 100px 100px 100px 110px;background:#f9fafb;font-weight:700;border-top:2px solid var(--border)">
+          <div style="padding:10px 12px">TOTAL</div>
+          <div style="padding:10px 12px;text-align:right;color:#0e9f6e">+${fmtN(totalEntrees)}</div>
+          <div style="padding:10px 12px;text-align:right;color:#e02424">-${fmtN(totalSorties)}</div>
+          <div style="padding:10px 12px;text-align:right;color:var(--primary)">${fmtN(totalStockFin)}</div>
+          <div style="padding:10px 12px;text-align:right;color:var(--warning)">${fmt(valeurStock)}</div>
+        </div>
+      </div>
+
+      <!-- ALERTES -->
+      <div id="stk-alertes" class="stk-section">
+        <table><thead><tr><th>Produit</th><th>Stock actuel</th><th>Stock min</th><th>Manque</th><th></th></tr></thead>
         <tbody>${alertes.map(p=>`
-          <tr><td>${p.nom}</td><td>${stockBadge(p.quantite,p.quantite_min)}</td><td>${p.quantite_min}</td>
-          <td><button class="btn btn-sm btn-primary" onclick="modalAdj(${p.id},'${p.nom.replace(/'/g,"\\'")}')">Ajuster</button></td>
-          </tr>`).join('')||'<tr><td colspan="4" style="text-align:center;padding:14px;color:var(--success)">✅ Aucune alerte</td></tr>'}
+          <tr>
+            <td><strong>${p.nom}</strong></td>
+            <td>${stockBadge(p.quantite,p.quantite_min)}</td>
+            <td>${p.quantite_min}</td>
+            <td style="color:var(--danger);font-weight:600">${p.quantite<p.quantite_min?'−'+(p.quantite_min-p.quantite):''}</td>
+            <td><button class="btn btn-sm btn-primary" onclick="modalAdj(${p.id},'${p.nom.replace(/'/g,"\\'")}')">Réapprovisionner</button></td>
+          </tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--success)">✅ Aucune alerte — tous les stocks sont OK</td></tr>'}
         </tbody></table>
       </div>
-      <div class="card">
-        <div class="section-header"><h3>Mouvements récents</h3></div>
-        <div class="table-wrap"><table><thead><tr><th>Date</th><th>Produit</th><th>Type</th><th>Qté</th></tr></thead>
-        <tbody>${mvts.map(m=>`
-          <tr><td>${fmtDT(m.created_at)}</td><td>${m.produit_nom}</td>
-          <td><span class="badge ${m.type==='entree'?'badge-success':'badge-danger'}">${m.type}</span></td>
-          <td>${m.quantite}</td></tr>`).join('')||'<tr><td colspan="4" class="text-muted" style="text-align:center">Aucun</td></tr>'}
-        </tbody></table></div>
+
+      <!-- MOUVEMENTS RÉCENTS -->
+      <div id="stk-mvts" class="stk-section">
+        <div class="table-wrap"><table>
+          <thead><tr><th>Date</th><th>Produit</th><th>Type</th><th>Quantité</th><th>Référence</th></tr></thead>
+          <tbody>${mvts.map(m=>`
+            <tr>
+              <td>${fmtDT(m.created_at)}</td>
+              <td>${m.produit_nom}</td>
+              <td><span class="badge ${m.type==='entree'?'badge-success':'badge-danger'}">${m.type==='entree'?'➕ Entrée':'➖ Sortie'}</span></td>
+              <td style="font-weight:700;color:${m.type==='entree'?'var(--success)':'var(--danger)'}">
+                ${m.type==='entree'?'+':'−'}${m.quantite}
+              </td>
+              <td>${m.reference||'—'}</td>
+            </tr>`).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:16px">Aucun mouvement</td></tr>'}
+          </tbody>
+        </table></div>
       </div>
-    </div>`;}
+    </div>`;
+}
+
+function switchStkTab(id,btn){
+  document.querySelectorAll('.stk-section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.stk-tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id)?.classList.add('active'); btn.classList.add('active');
+}
+
 async function modalAdj(prodId=null){
   const prods=await api(`/produits?magasin_id=${currentMagasinId}`);
   showModal(`<div class="modal">
