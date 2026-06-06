@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ya Matériels</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root {
   --primary: #1a56db;
@@ -811,52 +812,169 @@ async function ouvrirPaiement(){
   const rem=parseFloat(document.getElementById('remise')?.value)||0;
   const total=Math.max(0,sub-rem);
   const clients=await api(`/clients?magasin_id=${currentMagasinId}`);
-  showModal(`<div class="modal">
+
+  // Billets/pièces courants FCFA
+  const billets=[10000,5000,2000,1000,500,200,100,50,25,10,5];
+
+  showModal(`<div class="modal modal-lg">
     <div class="modal-header"><h3>💰 Encaissement</h3><button class="btn-icon" onclick="closeModal()">✕</button></div>
-    <div class="modal-body">
-      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;margin-bottom:14px;text-align:center">
-        <div style="font-size:12px;color:#15803d">Total à payer</div>
-        <div style="font-size:30px;font-weight:800;color:#15803d">${fmt(total)}</div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Client</label>
-          <select id="pay-client"><option value="">Client comptant</option>
-          ${clients.map(c=>`<option value="${c.id}">${c.nom} ${c.solde>0?'⚠️':''}</option>`).join('')}</select>
+    <div class="modal-body" style="padding:16px">
+      <style>
+        .calc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+        .calc-btn{padding:12px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:16px;font-weight:700;cursor:pointer;transition:all .12s;text-align:center}
+        .calc-btn:hover{background:var(--bg);border-color:var(--primary)}
+        .calc-btn.zero{grid-column:span 2}
+        .calc-btn.del{background:#fee2e2;color:var(--danger);border-color:#fca5a5}
+        .calc-btn.del:hover{background:#fca5a5}
+        .calc-btn.clear{background:#fef9c3;color:#854d0e;border-color:#fcd34d}
+        .billet-btn{padding:5px 10px;border-radius:6px;border:1.5px solid var(--border);background:#fff;font-size:11px;font-weight:700;cursor:pointer;transition:all .12s;white-space:nowrap}
+        .billet-btn:hover{background:var(--primary);color:#fff;border-color:var(--primary)}
+        .monnaie-display{background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:12px;text-align:center}
+        .monnaie-display.doit{background:#fff7ed;border-color:#fb923c}
+        .monnaie-display.exact{background:#eff6ff;border-color:#93c5fd}
+        .montant-recu-display{font-size:28px;font-weight:800;text-align:center;padding:10px;background:#f9fafb;border-radius:8px;border:2px solid var(--border);color:var(--text);margin-bottom:8px;letter-spacing:1px}
+      </style>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <!-- Colonne gauche : infos vente + calculatrice -->
+        <div>
+          <!-- Total -->
+          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px">
+            <div style="font-size:11px;font-weight:600;color:#15803d;margin-bottom:2px">TOTAL À PAYER</div>
+            <div style="font-size:32px;font-weight:800;color:#15803d">${fmt(total)}</div>
+          </div>
+
+          <!-- Montant saisi -->
+          <div style="margin-bottom:8px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">MONTANT DONNÉ PAR LE CLIENT</div>
+            <div class="montant-recu-display" id="calc-display">0</div>
+          </div>
+
+          <!-- Calculatrice -->
+          <div class="calc-grid" style="margin-bottom:10px">
+            ${[7,8,9,4,5,6,1,2,3].map(n=>`<button class="calc-btn" onclick="calcInput('${n}',${total})">${n}</button>`).join('')}
+            <button class="calc-btn zero" onclick="calcInput('0',${total})">0</button>
+            <button class="calc-btn del" onclick="calcInput('del',${total})">⌫</button>
+            <button class="calc-btn clear" style="grid-column:span 3" onclick="calcInput('clear',${total})">C Effacer</button>
+          </div>
+
+          <!-- Billets rapides -->
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:5px">BILLETS RAPIDES</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${billets.map(b=>`<button class="billet-btn" onclick="setBillet(${b},${total})">${b>=1000?(b/1000)+'k':b}</button>`).join('')}
+          </div>
         </div>
-        <div class="form-group"><label>Mode de paiement</label>
-          <select id="pay-mode">
-            <option value="especes">💵 Espèces</option>
-            <option value="mobile_money">📱 Mobile Money</option>
-            <option value="virement">🏦 Virement</option>
-            <option value="cheque">📝 Chèque</option>
-            <option value="credit">📒 Crédit</option>
-          </select>
+
+        <!-- Colonne droite : monnaie + options -->
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <!-- Monnaie à rendre -->
+          <div id="monnaie-box" class="monnaie-display">
+            <div style="font-size:11px;font-weight:600;color:#15803d;margin-bottom:4px">MONNAIE À REMETTRE</div>
+            <div style="font-size:36px;font-weight:800;color:#15803d" id="monnaie">—</div>
+          </div>
+
+          <!-- Récapitulatif -->
+          <div style="background:#f9fafb;border-radius:8px;padding:12px;font-size:13px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Total</span><strong>${fmt(total)}</strong></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;color:#15803d"><span>Donné</span><strong id="recapDonne">—</strong></div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:6px;font-size:15px;font-weight:700"><span>Monnaie</span><span id="recapMonnaie" style="color:#15803d">—</span></div>
+          </div>
+
+          <!-- Client -->
+          <div class="form-group" style="margin:0">
+            <label>Client</label>
+            <select id="pay-client"><option value="">Client comptant</option>
+            ${clients.map(c=>`<option value="${c.id}">${c.nom}${c.solde>0?' ⚠️':''}</option>`).join('')}</select>
+          </div>
+
+          <!-- Mode paiement -->
+          <div class="form-group" style="margin:0">
+            <label>Mode de paiement</label>
+            <select id="pay-mode">
+              <option value="especes">💵 Espèces</option>
+              <option value="mobile_money">📱 Mobile Money</option>
+              <option value="virement">🏦 Virement</option>
+              <option value="cheque">📝 Chèque</option>
+              <option value="credit">📒 Crédit</option>
+            </select>
+          </div>
+
+          <!-- Document -->
+          <div style="padding:10px;background:#eff6ff;border-radius:8px;font-size:12px">
+            <div style="font-weight:600;margin-bottom:6px">📄 Document à imprimer</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:4px">
+              <input type="radio" name="doc-type" value="recu" checked> Reçu simple
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="radio" name="doc-type" value="facture"> Facture gros client
+            </label>
+          </div>
+
+          <button class="btn btn-success" style="width:100%;justify-content:center;font-size:15px;padding:12px" onclick="confirmerVente(${total},${rem})">
+            ✅ Valider la vente
+          </button>
         </div>
       </div>
-      <div class="form-group"><label>Montant reçu</label>
-        <input type="number" id="pay-rec" value="${total}" min="0" oninput="calcMon(${total})" style="font-size:18px;font-weight:700">
-      </div>
-      <div style="text-align:center;padding:10px;background:#f9fafb;border-radius:8px;font-size:13px;margin-bottom:10px">
-        Monnaie à rendre: <strong id="monnaie">${fmt(0)}</strong>
-      </div>
-      <div style="display:flex;gap:8px;padding:10px;background:#eff6ff;border-radius:8px;font-size:12px;align-items:center">
-        <span>📄 Document :</span>
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="radio" name="doc-type" value="recu" checked> Reçu simple
-        </label>
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="radio" name="doc-type" value="facture"> Facture professionnelle (gros client)
-        </label>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
-      <button class="btn btn-success" style="font-size:14px" onclick="confirmerVente(${total},${rem})">✅ Valider la vente</button>
+
+      <!-- Input caché pour compatibilité -->
+      <input type="hidden" id="pay-rec" value="${total}">
     </div>
   </div>`);
+
+  // Initialiser l'affichage
+  calcMon(total);
 }
 
-function calcMon(total){const r=parseFloat(document.getElementById('pay-rec')?.value)||0;const el=document.getElementById('monnaie');if(el)el.textContent=fmt(Math.max(0,r-total));}
+// ── Calculatrice ──────────────────────────────────────────────────────────────
+let calcVal = '';
+
+function calcInput(key, total) {
+  if(key==='clear') { calcVal=''; }
+  else if(key==='del') { calcVal=calcVal.slice(0,-1); }
+  else {
+    if(calcVal.length>=10) return;
+    calcVal += key;
+  }
+  const display = document.getElementById('calc-display');
+  const n = parseInt(calcVal)||0;
+  if(display) display.textContent = n ? fmtN(n)+' FCFA' : '0';
+  document.getElementById('pay-rec').value = n || 0;
+  calcMon(total, n);
+}
+
+function setBillet(montant, total) {
+  calcVal = String(montant);
+  const display = document.getElementById('calc-display');
+  if(display) display.textContent = fmtN(montant)+' FCFA';
+  document.getElementById('pay-rec').value = montant;
+  calcMon(total, montant);
+}
+
+function calcMon(total, recu) {
+  if(recu===undefined) recu = parseFloat(document.getElementById('pay-rec')?.value)||0;
+  const monnaie = recu - total;
+  const el = document.getElementById('monnaie');
+  const box = document.getElementById('monnaie-box');
+  const rd = document.getElementById('recapDonne');
+  const rm = document.getElementById('recapMonnaie');
+  if(rd) rd.textContent = recu>0 ? fmt(recu) : '—';
+  if(el) {
+    if(recu===0 || recu===total) {
+      el.textContent='—'; el.style.color='#15803d';
+      if(box){box.className='monnaie-display exact';}
+      if(rm) rm.textContent='—';
+    } else if(monnaie>=0) {
+      el.textContent=fmt(monnaie); el.style.color='#15803d';
+      if(box){box.className='monnaie-display';}
+      if(rm){rm.textContent=fmt(monnaie);rm.style.color='#15803d';}
+    } else {
+      el.textContent='⚠️ Insuffisant ('+fmt(Math.abs(monnaie))+')';
+      el.style.color='var(--danger)';
+      if(box){box.className='monnaie-display doit';}
+      if(rm){rm.textContent='Manque '+fmt(Math.abs(monnaie));rm.style.color='var(--danger)';}
+    }
+  }
+}
 
 async function confirmerVente(total,rem){
   const clientId=document.getElementById('pay-client')?.value||null;
@@ -1681,24 +1799,268 @@ async function saveDep(){
 async function delDep(id){if(!confirm('Supprimer ?'))return;await api(`/depenses/${id}`,{method:'DELETE'});toast('Supprimée');renderDepenses();}
 
 // ── COMPTABILITÉ ──────────────────────────────────────────────────────────────
-async function pageComptabilite(){if(!isGerant()){restricted();return;}if(!currentMagasinId){noStore();return;}
-  const data=await api(`/dashboard/comptabilite?magasin_id=${currentMagasinId}`);
+let comptaData = null;
+
+async function pageComptabilite(){
+  if(!isGerant()){restricted();return;}
+  if(!currentMagasinId){noStore();return;}
+  comptaData = await api(`/dashboard/comptabilite?magasin_id=${currentMagasinId}`);
+  const m = currentMagasin();
+  const d = comptaData;
+
+  // Plan comptable simplifié
+  const planComptable = [
+    {classe:'7 — PRODUITS',   color:'#0e9f6e', comptes:[
+      {code:'701', libelle:'Ventes de marchandises',     debit:0,         credit:d.recettes},
+    ]},
+    {classe:'6 — CHARGES',    color:'#e02424', comptes:[
+      {code:'601', libelle:'Achats de marchandises',     debit:d.achats,  credit:0},
+      {code:'614', libelle:'Charges diverses / Dépenses',debit:d.depenses,credit:0},
+    ]},
+    {classe:'5 — TRÉSORERIE', color:'#1a56db', comptes:[
+      {code:'531', libelle:'Caisse (recettes encaissées)',debit:d.recettes,credit:d.achats+d.depenses},
+    ]},
+    {classe:'3 — STOCKS',     color:'#c27803', comptes:[
+      {code:'370', libelle:'Stock marchandises (valeur estimée)', debit:0, credit:0, note:'Voir inventaire'},
+    ]},
+  ];
+
   document.getElementById('content').innerHTML=`
-    <div class="grid-stats mb-4">
-      <div class="card"><div class="card-title">Recettes</div><div class="card-value success">${fmt(data.recettes)}</div></div>
-      <div class="card"><div class="card-title">Achats</div><div class="card-value warning">${fmt(data.achats)}</div></div>
-      <div class="card"><div class="card-title">Dépenses</div><div class="card-value warning">${fmt(data.depenses)}</div></div>
-      <div class="card"><div class="card-title">Bénéfice net</div><div class="card-value ${data.benefice>=0?'success':'danger'}">${fmt(data.benefice)}</div></div>
+    <style>
+      .compta-tabs{display:flex;gap:3px;border-bottom:2px solid var(--border);margin-bottom:20px}
+      .compta-tab{padding:9px 20px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text-muted);border-bottom:3px solid transparent;margin-bottom:-2px}
+      .compta-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+      .compta-section{display:none}.compta-section.active{display:block}
+      .export-bar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+      .export-btn{display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:#fff;transition:all .15s}
+      .export-btn:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.1)}
+      .export-btn.xlsx{border-color:#16a34a;color:#16a34a}.export-btn.xlsx:hover{background:#16a34a;color:#fff}
+      .export-btn.pdf{border-color:#e02424;color:#e02424}.export-btn.pdf:hover{background:#e02424;color:#fff}
+      .export-btn.csv{border-color:#0891b2;color:#0891b2}.export-btn.csv:hover{background:#0891b2;color:#fff}
+      .export-btn.word{border-color:#1a56db;color:#1a56db}.export-btn.word:hover{background:#1a56db;color:#fff}
+      .plan-classe{margin-bottom:16px;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+      .plan-classe-head{padding:10px 16px;font-weight:700;font-size:13px;color:#fff;display:flex;justify-content:space-between}
+      .plan-compte{display:grid;grid-template-columns:80px 1fr 140px 140px;gap:0;font-size:13px;border-bottom:1px solid var(--border)}
+      .plan-compte:last-child{border-bottom:none}
+      .plan-compte>div{padding:9px 14px}
+      .plan-compte:hover>div{background:#f9fafb}
+      .plan-head{display:grid;grid-template-columns:80px 1fr 140px 140px;background:#f9fafb;font-size:11px;font-weight:700;color:var(--text-muted)}
+      .plan-head>div{padding:7px 14px}
+      .solde-debit{color:#e02424;font-weight:600;text-align:right}
+      .solde-credit{color:#0e9f6e;font-weight:600;text-align:right}
+    </style>
+
+    <div class="compta-tabs">
+      <button class="compta-tab active" onclick="switchCompta('vue-globale',this)">📊 Vue globale</button>
+      <button class="compta-tab" onclick="switchCompta('plan-comptable',this)">📒 Plan comptable</button>
+      <button class="compta-tab" onclick="switchCompta('graphiques',this)">📈 Graphiques</button>
     </div>
-    <div class="grid-2">
-      <div class="card"><div class="section-header"><h3>Ventes par mois</h3></div><canvas id="chartC" height="210"></canvas></div>
-      <div class="card"><div class="section-header"><h3>Dépenses par catégorie</h3></div><canvas id="chartCat" height="210"></canvas></div>
+
+    <!-- ── VUE GLOBALE ── -->
+    <div id="vue-globale" class="compta-section active">
+      <div class="export-bar">
+        <strong style="font-size:13px">Exporter :</strong>
+        <button class="export-btn xlsx" onclick="exportCompta('xlsx')">📗 Excel</button>
+        <button class="export-btn pdf"  onclick="exportCompta('pdf')">📕 PDF</button>
+        <button class="export-btn word" onclick="exportCompta('word')">📘 Word</button>
+        <button class="export-btn csv"  onclick="exportCompta('csv')">📄 CSV</button>
+      </div>
+      <div class="grid-stats" style="margin-bottom:20px">
+        <div class="card"><div class="card-title">💚 Recettes (mois)</div><div class="card-value success">${fmt(d.recettes)}</div></div>
+        <div class="card"><div class="card-title">🟠 Achats (mois)</div><div class="card-value warning">${fmt(d.achats)}</div></div>
+        <div class="card"><div class="card-title">🔴 Dépenses (mois)</div><div class="card-value warning">${fmt(d.depenses)}</div></div>
+        <div class="card"><div class="card-title">🏆 Bénéfice net</div><div class="card-value ${d.benefice>=0?'success':'danger'}">${fmt(d.benefice)}</div></div>
+      </div>
+      <!-- Tableau récapitulatif mensuel -->
+      <div class="card">
+        <div class="section-header"><h3>Récapitulatif mensuel — ${m?.nom||''}</h3></div>
+        <table><thead><tr><th>Mois</th><th style="text-align:right">Ventes</th></tr></thead>
+        <tbody>${d.ventes_par_mois.map(v=>`
+          <tr><td>${v.mois}</td><td style="text-align:right;font-weight:600;color:var(--success)">${fmt(v.total)}</td></tr>`).join('')||'<tr><td colspan="2" class="text-muted" style="text-align:center">Aucune donnée</td></tr>'}
+        </tbody>
+        <tfoot><tr style="background:#f9fafb;font-weight:700">
+          <td>TOTAL</td>
+          <td style="text-align:right;color:var(--success)">${fmt(d.ventes_par_mois.reduce((s,v)=>s+v.total,0))}</td>
+        </tr></tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── PLAN COMPTABLE ── -->
+    <div id="plan-comptable" class="compta-section">
+      <div class="export-bar">
+        <strong style="font-size:13px">Exporter le plan :</strong>
+        <button class="export-btn xlsx" onclick="exportPlan('xlsx')">📗 Excel</button>
+        <button class="export-btn pdf"  onclick="exportPlan('pdf')">📕 PDF</button>
+        <button class="export-btn csv"  onclick="exportPlan('csv')">📄 CSV</button>
+      </div>
+      ${planComptable.map(cls=>`
+        <div class="plan-classe">
+          <div class="plan-classe-head" style="background:${cls.color}">
+            <span>${cls.classe}</span>
+            <span style="opacity:.8;font-size:11px">Ce mois</span>
+          </div>
+          <div class="plan-head">
+            <div>Code</div><div>Libellé</div>
+            <div style="text-align:right">Débit</div>
+            <div style="text-align:right">Crédit</div>
+          </div>
+          ${cls.comptes.map(c=>`
+            <div class="plan-compte">
+              <div><code>${c.code}</code></div>
+              <div>${c.libelle}${c.note?`<br><small style="color:var(--text-muted)">${c.note}</small>`:''}</div>
+              <div class="solde-debit">${c.debit>0?fmt(c.debit):'—'}</div>
+              <div class="solde-credit">${c.credit>0?fmt(c.credit):'—'}</div>
+            </div>`).join('')}
+          <div style="display:grid;grid-template-columns:80px 1fr 140px 140px;background:#f9fafb;font-weight:700;font-size:12px">
+            <div style="padding:7px 14px"></div>
+            <div style="padding:7px 14px">SOLDE</div>
+            <div style="padding:7px 14px;text-align:right;color:#e02424">${fmt(cls.comptes.reduce((s,c)=>s+c.debit,0))}</div>
+            <div style="padding:7px 14px;text-align:right;color:#0e9f6e">${fmt(cls.comptes.reduce((s,c)=>s+c.credit,0))}</div>
+          </div>
+        </div>`).join('')}
+
+      <!-- Résultat net -->
+      <div style="margin-top:16px;padding:16px;border-radius:10px;background:${d.benefice>=0?'#f0fdf4':'#fef2f2'};border:2px solid ${d.benefice>=0?'#86efac':'#fca5a5'}">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-weight:700;font-size:14px">🏆 RÉSULTAT NET DU MOIS</div>
+            <div style="font-size:12px;color:var(--text-muted)">Produits (Cl.7) — Charges (Cl.6)</div>
+          </div>
+          <div style="font-size:28px;font-weight:800;color:${d.benefice>=0?'#15803d':'#dc2626'}">${fmt(d.benefice)}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GRAPHIQUES ── -->
+    <div id="graphiques" class="compta-section">
+      <div class="grid-2">
+        <div class="card"><div class="section-header"><h3>Ventes par mois</h3></div><canvas id="chartC" height="210"></canvas></div>
+        <div class="card"><div class="section-header"><h3>Dépenses par catégorie</h3></div><canvas id="chartCat" height="210"></canvas></div>
+      </div>
     </div>`;
-  if(chartC)chartC.destroy();if(chartCat)chartCat.destroy();
+
+  if(chartC)chartC.destroy(); if(chartCat)chartCat.destroy();
   const c1=document.getElementById('chartC')?.getContext('2d');
-  if(c1)chartC=new Chart(c1,{type:'bar',data:{labels:data.ventes_par_mois.map(v=>v.mois),datasets:[{label:'Ventes',data:data.ventes_par_mois.map(v=>v.total),backgroundColor:'#1a56db88'}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fmtN(v)}}}}});
+  if(c1)chartC=new Chart(c1,{type:'bar',data:{labels:d.ventes_par_mois.map(v=>v.mois),datasets:[{label:'Ventes',data:d.ventes_par_mois.map(v=>v.total),backgroundColor:'#1a56db88',borderColor:'#1a56db',borderWidth:1}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fmtN(v)}}}}});
   const c2=document.getElementById('chartCat')?.getContext('2d');
-  if(c2&&data.depenses_par_cat.length)chartCat=new Chart(c2,{type:'doughnut',data:{labels:data.depenses_par_cat.map(d=>d.categorie),datasets:[{data:data.depenses_par_cat.map(d=>d.total),backgroundColor:['#1a56db','#0e9f6e','#e02424','#c27803','#7c3aed','#db2777']}]},options:{responsive:true}});}
+  if(c2&&d.depenses_par_cat.length)chartCat=new Chart(c2,{type:'doughnut',data:{labels:d.depenses_par_cat.map(x=>x.categorie),datasets:[{data:d.depenses_par_cat.map(x=>x.total),backgroundColor:['#1a56db','#0e9f6e','#e02424','#c27803','#7c3aed','#db2777']}]},options:{responsive:true}});
+}
+
+function switchCompta(section, btn) {
+  document.querySelectorAll('.compta-section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.compta-tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById(section)?.classList.add('active');
+  btn.classList.add('active');
+  // Redessiner graphiques si nécessaire
+  if(section==='graphiques') {
+    setTimeout(()=>{
+      const c1=document.getElementById('chartC')?.getContext('2d');
+      if(c1&&chartC) chartC.resize();
+      const c2=document.getElementById('chartCat')?.getContext('2d');
+      if(c2&&chartCat) chartCat.resize();
+    },100);
+  }
+}
+
+// ── EXPORTS COMPTABILITÉ ──────────────────────────────────────────────────────
+function exportCompta(format) {
+  const m = currentMagasin();
+  const d = comptaData;
+  const rows = [
+    ['Rapport Comptable — ' + (m?.nom||''), '', ''],
+    ['Période : Ce mois', '', ''],
+    ['', '', ''],
+    ['INDICATEUR', 'MONTANT (FCFA)'],
+    ['Recettes (ventes encaissées)', d.recettes],
+    ['Achats fournisseurs', d.achats],
+    ['Dépenses diverses', d.depenses],
+    ['BÉNÉFICE NET', d.benefice],
+    ['', ''],
+    ['VENTES PAR MOIS', ''],
+    ...d.ventes_par_mois.map(v=>[v.mois, v.total]),
+    ['', ''],
+    ['DÉPENSES PAR CATÉGORIE', ''],
+    ...d.depenses_par_cat.map(x=>[x.categorie, x.total]),
+  ];
+  exportData(rows, 'comptabilite_' + new Date().toISOString().slice(0,10), format);
+}
+
+function exportPlan(format) {
+  const d = comptaData;
+  const rows = [
+    ['PLAN COMPTABLE SIMPLIFIÉ', '', '', ''],
+    ['Code', 'Libellé', 'Débit (FCFA)', 'Crédit (FCFA)'],
+    ['701','Ventes de marchandises', 0, d.recettes],
+    ['601','Achats de marchandises', d.achats, 0],
+    ['614','Charges diverses', d.depenses, 0],
+    ['531','Caisse', d.recettes, d.achats+d.depenses],
+    ['', '','',''],
+    ['','RÉSULTAT NET', '', d.benefice],
+  ];
+  exportData(rows, 'plan_comptable_' + new Date().toISOString().slice(0,10), format);
+}
+
+function exportData(rows, filename, format) {
+  if(format==='xlsx') {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    // Style colonnes larges
+    ws['!cols'] = [{wch:40},{wch:20},{wch:20},{wch:20}];
+    XLSX.utils.book_append_sheet(wb, ws, 'Données');
+    XLSX.writeFile(wb, filename+'.xlsx');
+
+  } else if(format==='csv') {
+    const csv = rows.map(r=>r.map(c=>'"'+(c||'').toString().replace(/"/g,'""')+'"').join(',')).join('\n');
+    const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'});
+    dlBlob(blob, filename+'.csv');
+
+  } else if(format==='pdf') {
+    const w = window.open('','_blank','width=900,height=700');
+    const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+    const m = currentMagasin();
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${filename}</title>
+    <style>
+      body{font-family:Arial,sans-serif;font-size:13px;padding:32px;max-width:800px;margin:0 auto}
+      h1{color:${primary};font-size:20px;margin-bottom:4px} h2{font-size:14px;color:#6b7280;font-weight:normal;margin-bottom:24px}
+      table{width:100%;border-collapse:collapse;margin-bottom:20px}
+      th{background:${primary};color:#fff;padding:9px 12px;text-align:left;font-size:12px}
+      td{padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px}
+      tr:nth-child(even) td{background:#f9fafb}
+      .total td{font-weight:700;background:#f0fdf4;border-top:2px solid ${primary}}
+      .neg td{background:#fef2f2}
+      @media print{body{padding:16px}}
+    </style></head><body>
+    <h1>${m?.nom||'Ya Matériels'} — Rapport Comptable</h1>
+    <h2>${new Date().toLocaleDateString('fr-FR')}</h2>
+    <table><thead><tr>${rows[0].map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>
+    ${rows.slice(1).map(r=>`<tr>${r.map(c=>`<td>${typeof c==='number'?fmtN(c):c||''}</td>`).join('')}</tr>`).join('')}
+    </tbody></table>
+    <script>window.onload=()=>window.print()<\/script></body></html>`);
+
+  } else if(format==='word') {
+    const m = currentMagasin();
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+    <head><meta charset="UTF-8"><title>${filename}</title>
+    <style>body{font-family:Arial;font-size:12pt}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6pt 10pt}th{background:#1a56db;color:#fff}</style>
+    </head><body>
+    <h1>${m?.nom||'Ya Matériels'} — Rapport Comptable</h1>
+    <p>Date : ${new Date().toLocaleDateString('fr-FR')}</p>
+    <table><thead><tr>${rows[0].map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>
+    ${rows.slice(1).map(r=>`<tr>${r.map(c=>`<td>${typeof c==='number'?fmtN(c):c||''}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></body></html>`;
+    const blob = new Blob([html], {type:'application/msword'});
+    dlBlob(blob, filename+'.doc');
+  }
+}
+
+function dlBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 // ── MAGASINS / PARAMÈTRES ─────────────────────────────────────────────────────
 let editMagasinId = null;
