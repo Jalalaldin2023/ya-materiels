@@ -110,6 +110,13 @@ tr:hover td{background:#f9fafb}
 .btn-sm{padding:4px 10px;font-size:12px}
 .btn-icon{padding:5px;border-radius:4px;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:13px}
 .btn-icon:hover{background:var(--bg);color:var(--text)}
+/* Export buttons (global) */
+.export-btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:#fff;transition:all .15s}
+.export-btn:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.1)}
+.export-btn.xlsx{border-color:#16a34a;color:#16a34a}.export-btn.xlsx:hover{background:#16a34a;color:#fff}
+.export-btn.pdf{border-color:#e02424;color:#e02424}.export-btn.pdf:hover{background:#e02424;color:#fff}
+.export-btn.csv{border-color:#0891b2;color:#0891b2}.export-btn.csv:hover{background:#0891b2;color:#fff}
+.export-btn.word{border-color:#1a56db;color:#1a56db}.export-btn.word:hover{background:#1a56db;color:#fff}
 
 /* Forms */
 .form-group{margin-bottom:14px}
@@ -905,9 +912,13 @@ async function ouvrirPaiement(){
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:4px">
               <input type="radio" name="doc-type" value="recu" checked> Reçu simple
             </label>
+            ${currentUser.role==='commercial' ? `
+            <div style="color:var(--text-muted);font-size:11px;padding:4px 0">
+              🔒 La facture est établie par la caisse
+            </div>` : `
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="radio" name="doc-type" value="facture"> Facture gros client
-            </label>
+              <input type="radio" name="doc-type" value="facture"> Facture professionnelle (TVA)
+            </label>`}
           </div>
 
           <button class="btn btn-success" style="width:100%;justify-content:center;font-size:15px;padding:12px" onclick="confirmerVente(${total},${rem})">
@@ -1130,14 +1141,23 @@ function printFacture(res, lignes, total, remise, mode, recu, client) {
     </tbody>
   </table>
 
-  <!-- TOTAUX -->
-  <div class="totaux">
-    <div class="row"><span>Sous-total</span><span>${fmt(lignes.reduce((s,i)=>s+i.qty*i.prix,0))}</span></div>
-    ${remise>0 ? `<div class="row"><span>Remise</span><span>- ${fmt(remise)}</span></div>` : ''}
-    <div class="row total"><span>TOTAL TTC</span><span>${fmt(total)}</span></div>
-    <div class="row regle"><span>✅ Réglé</span><span>${fmt(Math.min(recu,total))}</span></div>
-    ${total > recu ? `<div class="row reste"><span>⚠️ Reste à payer</span><span>${fmt(total-recu)}</span></div>` : ''}
-  </div>
+  <!-- TOTAUX avec TVA 18% -->
+  ${(()=>{
+    const sousTotal = lignes.reduce((s,i)=>s+i.qty*i.prix,0);
+    const tauxTVA = (m.taux_tva!=null ? m.taux_tva : 18);
+    // total TTC = sousTotal - remise ; HT = TTC / (1+tva) ; TVA = TTC - HT
+    const ht = total / (1 + tauxTVA/100);
+    const tva = total - ht;
+    return `<div class="totaux">
+      <div class="row"><span>Sous-total</span><span>${fmt(sousTotal)}</span></div>
+      ${remise>0 ? `<div class="row"><span>Remise</span><span>- ${fmt(remise)}</span></div>` : ''}
+      <div class="row"><span>Montant HT</span><span>${fmt(ht)}</span></div>
+      <div class="row"><span>TVA (${tauxTVA}%)</span><span>${fmt(tva)}</span></div>
+      <div class="row total"><span>TOTAL TTC</span><span>${fmt(total)}</span></div>
+      <div class="row regle"><span>✅ Réglé</span><span>${fmt(Math.min(recu,total))}</span></div>
+      ${total > recu ? `<div class="row reste"><span>⚠️ Reste à payer</span><span>${fmt(total-recu)}</span></div>` : ''}
+    </div>`;
+  })()}
 
   <!-- PIED DE PAGE -->
   <div class="footer">
@@ -1232,6 +1252,7 @@ async function annulerVente(id,num){
 
 // ── PRODUITS ──────────────────────────────────────────────────────────────────
 let categories=[];
+let produitsData=[];
 async function pageProduits(){if(!isGest()){restricted();return;}if(!currentMagasinId){noStore();return;}
   categories=await api(`/produits/categories?magasin_id=${currentMagasinId}`); renderProduits();}
 
@@ -1239,6 +1260,7 @@ async function renderProduits(s='',cid=0){
   let url=`/produits?magasin_id=${currentMagasinId}&search=${encodeURIComponent(s)}`;
   if(cid)url+=`&categorie_id=${cid}`;
   const data=await api(url);
+  produitsData=data;
 
   // Totaux
   const totalCR  = data.reduce((sum,p)=>(p.prix_achat||0)*(p.quantite||0)+sum,0);
@@ -1317,27 +1339,36 @@ async function renderProduits(s='',cid=0){
 
       <!-- VUE COÛT DE REVIENT -->
       <div id="prod-cout" class="prod-section">
+        <div class="export-bar" style="margin-bottom:12px">
+          <strong style="font-size:13px">Exporter :</strong>
+          <button class="export-btn xlsx" onclick="exportCoutRevient('xlsx')">📗 Excel</button>
+          <button class="export-btn pdf" onclick="exportCoutRevient('pdf')">📕 PDF</button>
+          <button class="export-btn csv" onclick="exportCoutRevient('csv')">📄 CSV</button>
+        </div>
         <div class="table-wrap"><table>
           <thead>
             <tr>
               <th>Produit</th><th>Catégorie</th><th>Unité</th>
               <th style="text-align:right">Px Achat</th>
+              <th style="text-align:right">Coût unitaire</th>
               <th style="text-align:right">Stock</th>
-              <th style="text-align:right">Coût de revient</th>
+              <th style="text-align:right">Coût revient total</th>
               <th style="text-align:right">PV1</th>
               <th style="text-align:right">Marge PV1</th>
             </tr>
           </thead>
           <tbody>
             ${data.map(p=>{
-              const cr = (p.prix_achat||0)*(p.quantite||0);
-              const marge = p.prix_vente>0 ? Math.round((p.prix_vente-p.prix_achat)/p.prix_vente*100) : 0;
+              const cu = p.prix_achat||0;              // coût de revient unitaire
+              const cr = cu*(p.quantite||0);            // coût de revient total
+              const marge = p.prix_vente>0 ? Math.round((p.prix_vente-cu)/p.prix_vente*100) : 0;
               const margeColor = marge>=30?'var(--success)':marge>=15?'var(--warning)':'var(--danger)';
               return `<tr>
                 <td><strong>${p.nom}</strong></td>
                 <td>${p.categorie_nom||'-'}</td>
                 <td>${p.unite}</td>
                 <td style="text-align:right">${fmt(p.prix_achat)}</td>
+                <td style="text-align:right;font-weight:700;color:var(--primary)">${fmt(cu)}</td>
                 <td style="text-align:right">${p.quantite}</td>
                 <td style="text-align:right;font-weight:700;color:var(--warning)">${fmt(cr)}</td>
                 <td style="text-align:right">${fmt(p.prix_vente)}</td>
@@ -1346,11 +1377,11 @@ async function renderProduits(s='',cid=0){
                   <div class="marge-bar"><div class="marge-bar-fill" style="width:${Math.min(marge,100)}%;background:${margeColor}"></div></div>
                 </td>
               </tr>`;
-            }).join('')||'<tr><td colspan="8" class="text-muted" style="text-align:center;padding:16px">Aucun produit</td></tr>'}
+            }).join('')||'<tr><td colspan="9" class="text-muted" style="text-align:center;padding:16px">Aucun produit</td></tr>'}
           </tbody>
           <tfoot>
             <tr style="background:#f9fafb;font-weight:700">
-              <td colspan="5">TOTAL</td>
+              <td colspan="6">TOTAL</td>
               <td style="text-align:right;color:var(--warning)">${fmt(totalCR)}</td>
               <td style="text-align:right;color:var(--success)">${fmt(totalPV1)}</td>
               <td style="text-align:right;color:var(--primary)">${margeGlob}%</td>
@@ -1392,6 +1423,27 @@ function switchProdTab(id,btn){
   document.querySelectorAll('.prod-section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.prod-tab').forEach(b=>b.classList.remove('active'));
   document.getElementById(id)?.classList.add('active'); btn.classList.add('active');
+}
+
+function exportCoutRevient(format){
+  const m=currentMagasin();
+  const rows=[
+    ['COÛT DE REVIENT — '+(m?.nom||''),'','','','','','',''],
+    ['Date : '+new Date().toLocaleDateString('fr-FR'),'','','','','','',''],
+    ['',''],
+    ['Produit','Catégorie','Unité','Px Achat','Coût unitaire','Stock','Coût revient total','PV1','Marge %'],
+    ...produitsData.map(p=>{
+      const cu=p.prix_achat||0, cr=cu*(p.quantite||0);
+      const marge=p.prix_vente>0?Math.round((p.prix_vente-cu)/p.prix_vente*100):0;
+      return [p.nom,p.categorie_nom||'',p.unite,p.prix_achat,cu,p.quantite,cr,p.prix_vente,marge+'%'];
+    }),
+    ['',''],
+    ['TOTAL','','','','',
+      produitsData.reduce((s,p)=>s+(p.quantite||0),0),
+      produitsData.reduce((s,p)=>s+(p.prix_achat||0)*(p.quantite||0),0),
+      produitsData.reduce((s,p)=>s+(p.prix_vente||0)*(p.quantite||0),0),''],
+  ];
+  exportData(rows,'cout_revient_'+new Date().toISOString().slice(0,10),format);
 }
 function calcPVAuto() {
   const pa = parseFloat(document.getElementById('pp_pa')?.value) || 0;
@@ -1480,6 +1532,7 @@ async function pageStock(){
   const totalSorties  = rapport.reduce((s,r)=>s+r.total_sorties,0);
   const totalStockFin = rapport.reduce((s,r)=>s+r.stock_final,0);
   const valeurStock   = rapport.reduce((s,r)=>s+r.cout_revient,0);
+  rapportStockData = rapport;
 
   document.getElementById('content').innerHTML=`
     <style>
@@ -1530,6 +1583,11 @@ async function pageStock(){
 
       <!-- FLUX PAR PRODUIT -->
       <div id="stk-flux" class="stk-section active">
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="export-btn xlsx" onclick="exportInventaire('xlsx')">📗 Excel</button>
+          <button class="export-btn pdf" onclick="exportInventaire('pdf')">📕 PDF</button>
+          <button class="export-btn csv" onclick="exportInventaire('csv')">📄 CSV</button>
+        </div>
         <div class="flow-head">
           <div>Produit / Catégorie</div>
           <div style="text-align:right">➕ Entrées</div>
@@ -1600,6 +1658,32 @@ function switchStkTab(id,btn){
   document.getElementById(id)?.classList.add('active'); btn.classList.add('active');
 }
 
+function exportInventaire(format){
+  const m = currentMagasin();
+  if(!rapportStockData || !rapportStockData.length){ toast('Aucune donnée à exporter','danger'); return; }
+  const rows = [
+    ['INVENTAIRE — STOCK — '+(m?.nom||''),'','','','','','',''],
+    ['Date : '+new Date().toLocaleDateString('fr-FR'),'','','','','','',''],
+    [''],
+    ['Produit','Catégorie','Unité','Prix Achat','PV1','Stock Final','Coût Revient','Valeur PV1','Entrées','Sorties'],
+    ...rapportStockData.map(r => [
+      r.nom, r.categorie||'', r.unite,
+      r.prix_achat||0, r.pv1||0, r.stock_final||0,
+      r.cout_revient||0, r.valeur_pv1||0,
+      r.total_entrees||0, r.total_sorties||0
+    ]),
+    [''],
+    ['TOTAL','','','','',
+      rapportStockData.reduce((s,r)=>s+(r.stock_final||0),0),'',
+      rapportStockData.reduce((s,r)=>s+(r.cout_revient||0),0),
+      rapportStockData.reduce((s,r)=>s+(r.valeur_pv1||0),0),
+      rapportStockData.reduce((s,r)=>s+(r.total_entrees||0),0),
+      rapportStockData.reduce((s,r)=>s+(r.total_sorties||0),0)
+    ],
+  ];
+  exportData(rows, 'inventaire_stock_'+new Date().toISOString().slice(0,10), format);
+}
+
 async function modalAdj(prodId=null){
   const prods=await api(`/produits?magasin_id=${currentMagasinId}`);
   showModal(`<div class="modal">
@@ -1645,7 +1729,10 @@ async function renderAchats(s='') {
         <div style="font-size:12px;opacity:.8;margin-bottom:2px">📦 ${m?.nom||''} — Réception de marchandises</div>
         <div style="font-size:18px;font-weight:700">Chaque achat met à jour le stock automatiquement</div>
       </div>
-      <button class="btn" style="background:rgba(255,255,255,.2);color:#fff;font-size:14px" onclick="modalAchat()">+ Nouvel achat / Réception</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn" style="background:rgba(255,255,255,.15);color:#fff;font-size:13px;border:1px solid rgba(255,255,255,.3)" onclick="modalImportAchat()">📥 Importer Excel/CSV</button>
+        <button class="btn" style="background:rgba(255,255,255,.2);color:#fff;font-size:14px" onclick="modalAchat()">+ Nouvel achat / Réception</button>
+      </div>
     </div>
     <div class="card">
       <div class="section-header"><h3>Historique des achats (${data.length})</h3></div>
@@ -1860,6 +1947,172 @@ async function saveAchat() {
     setTimeout(()=>el.style.display='none', 5000);
     renderAchats();
   } catch(e) {}
+}
+
+// ── IMPORT ACHATS (Excel / CSV) ───────────────────────────────────────────────
+async function modalImportAchat() {
+  const prods = await api(`/produits?magasin_id=${currentMagasinId}`);
+  achatProdsCache = prods;
+
+  showModal(`<div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>📥 Importer des achats — Excel / CSV</h3>
+      <button class="btn-icon" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#eff6ff;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px">
+        <strong>📋 Format attendu (colonnes) :</strong><br>
+        <code style="background:#dbeafe;padding:2px 6px;border-radius:4px">Produit | Quantité | Prix unitaire</code><br>
+        <span style="font-size:11px;color:var(--text-muted)">La 1ère colonne doit contenir le nom ou le code du produit (correspond aux produits existants).</span>
+      </div>
+
+      <div class="form-group">
+        <label>Fichier Excel (.xlsx, .xls) ou CSV (.csv)</label>
+        <input type="file" id="import-file" accept=".xlsx,.xls,.csv"
+          style="border:2px dashed var(--border);border-radius:8px;padding:12px;width:100%;background:#f9fafb"
+          onchange="parseImportFile(this)">
+      </div>
+
+      <div id="import-preview" style="display:none">
+        <div style="font-weight:600;margin-bottom:8px">Aperçu des lignes importées :</div>
+        <div id="import-table"></div>
+        <div id="import-errors" style="color:var(--danger);font-size:12px;margin-top:8px"></div>
+      </div>
+
+      <div id="import-stats" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;margin-top:12px">
+        <div id="import-stats-text"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-success" id="btn-import-confirm" style="display:none" onclick="confirmerImportAchat()">
+        ✅ Importer et mettre à jour le stock
+      </button>
+    </div>
+  </div>`);
+}
+
+let importLignesParsed = [];
+
+function parseImportFile(input) {
+  const prods = achatProdsCache; // set in modalImportAchat
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+
+  reader.onload = function(e) {
+    let rows = [];
+    const name = file.name.toLowerCase();
+
+    if(name.endsWith('.csv')) {
+      // CSV parsing
+      const text = e.target.result;
+      const lines = text.split(/\r?\n/).filter(l=>l.trim());
+      // Skip header if first cell is non-numeric
+      const start = isNaN(lines[0]?.split(/[,;]/)[0]) ? 1 : 0;
+      rows = lines.slice(start).map(l => l.split(/[,;]/).map(c=>c.replace(/^"|"$/g,'').trim()));
+    } else {
+      // Excel parsing with SheetJS
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      // Skip header row
+      if(rows.length && typeof rows[0][0] === 'string' && isNaN(rows[0][1])) rows = rows.slice(1);
+    }
+
+    // Map rows → lignes
+    const errors = [];
+    importLignesParsed = [];
+
+    rows.forEach((r, idx) => {
+      if(!r || r.length < 2) return;
+      const nomOrCode = String(r[0]||'').trim();
+      const qte = parseInt(r[1]) || 0;
+      const prix = parseFloat(String(r[2]||'0').replace(/\s/g,'').replace(',','.')) || 0;
+      if(!nomOrCode || qte <= 0) return;
+
+      // Find matching product
+      const prod = prods.find(p =>
+        p.nom.toLowerCase() === nomOrCode.toLowerCase() ||
+        (p.code && p.code.toLowerCase() === nomOrCode.toLowerCase()) ||
+        p.nom.toLowerCase().includes(nomOrCode.toLowerCase())
+      );
+
+      if(!prod) {
+        errors.push(`Ligne ${idx+2}: produit introuvable — "${nomOrCode}"`);
+        return;
+      }
+
+      importLignesParsed.push({
+        produit_id: prod.id, nom: prod.nom,
+        quantite: qte,
+        prix_unitaire: prix || prod.prix_achat || 0,
+        stock_actuel: prod.quantite
+      });
+    });
+
+    // Render preview
+    const preview = document.getElementById('import-preview');
+    const table = document.getElementById('import-table');
+    const errDiv = document.getElementById('import-errors');
+    const stats = document.getElementById('import-stats');
+    const statsText = document.getElementById('import-stats-text');
+    const btnConfirm = document.getElementById('btn-import-confirm');
+
+    preview.style.display = 'block';
+    errDiv.textContent = errors.length ? '⚠️ ' + errors.join(' | ') : '';
+
+    if(importLignesParsed.length) {
+      const total = importLignesParsed.reduce((s,l) => s + l.quantite * l.prix_unitaire, 0);
+      table.innerHTML = `<table>
+        <thead><tr><th>Produit</th><th>Stock actuel</th><th>Qté reçue</th><th>Nouveau stock</th><th>Prix unit.</th><th>Sous-total</th></tr></thead>
+        <tbody>${importLignesParsed.map(l=>`
+          <tr>
+            <td><strong>${l.nom}</strong></td>
+            <td>${l.stock_actuel}</td>
+            <td style="font-weight:700;color:var(--success)">+${l.quantite}</td>
+            <td style="font-weight:700;color:var(--primary)">${l.stock_actuel + l.quantite}</td>
+            <td>${fmt(l.prix_unitaire)}</td>
+            <td>${fmt(l.quantite * l.prix_unitaire)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+      stats.style.display = 'block';
+      statsText.innerHTML = `<strong>${importLignesParsed.length} produit(s)</strong> prêt(s) à importer · Total achat : <strong>${fmt(total)}</strong>`;
+      btnConfirm.style.display = 'inline-flex';
+    } else {
+      table.innerHTML = '<div style="padding:12px;color:var(--danger)">Aucune ligne valide trouvée. Vérifiez le format du fichier.</div>';
+      btnConfirm.style.display = 'none';
+    }
+  };
+
+  if(file.name.toLowerCase().endsWith('.csv')) {
+    reader.readAsText(file, 'UTF-8');
+  } else {
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+async function confirmerImportAchat() {
+  if(!importLignesParsed.length) return;
+  const total = importLignesParsed.reduce((s,l) => s + l.quantite * l.prix_unitaire, 0);
+  const payload = {
+    magasin_id: currentMagasinId,
+    fournisseur_id: null,
+    lignes: importLignesParsed.map(l => ({produit_id:l.produit_id, quantite:l.quantite, prix_unitaire:l.prix_unitaire})),
+    montant_paye: total,
+    statut: 'paye',
+    notes: 'Importé depuis fichier Excel/CSV'
+  };
+  try {
+    const res = await api('/achats', {method:'POST', body:payload});
+    toast(`✅ Import réussi — ${res.numero} — ${importLignesParsed.length} produit(s) mis à jour`);
+    closeModal();
+    renderAchats();
+  } catch(e) {
+    toast('Erreur lors de l\'import', 'danger');
+  }
 }
 
 async function voirAchat(id) {
@@ -2770,5 +3023,157 @@ async function checkAlertesStock(){
 updateClock();
 setInterval(updateClock,1000);
 </script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     CHATBOT YA MATÉRIELS
+══════════════════════════════════════════════════════════════════════════ -->
+<style>
+#chatbot-btn{position:fixed;bottom:24px;right:24px;z-index:9000;width:54px;height:54px;border-radius:50%;background:var(--primary);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 4px 18px rgba(26,86,219,.4);display:flex;align-items:center;justify-content:center;transition:all .2s}
+#chatbot-btn:hover{transform:scale(1.08);filter:brightness(1.1)}
+#chatbot-panel{position:fixed;bottom:90px;right:24px;z-index:9000;width:340px;max-height:520px;background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,.18);border:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:all .25s;transform-origin:bottom right}
+#chatbot-panel.hidden{opacity:0;pointer-events:none;transform:scale(.92) translateY(10px)}
+#chatbot-panel.visible{opacity:1;pointer-events:all;transform:scale(1) translateY(0)}
+.cb-head{background:var(--primary);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.cb-head .cb-av{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.cb-head .cb-title{font-size:14px;font-weight:700}
+.cb-head .cb-sub{font-size:11px;opacity:.85}
+.cb-head .cb-close{margin-left:auto;background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:2px 6px;border-radius:4px;opacity:.8}
+.cb-head .cb-close:hover{opacity:1;background:rgba(255,255,255,.15)}
+.cb-messages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:#f9fafb}
+.cb-msg{max-width:86%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.5}
+.cb-msg.bot{background:#fff;border:1px solid var(--border);color:var(--text);align-self:flex-start;border-bottom-left-radius:4px}
+.cb-msg.user{background:var(--primary);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+.cb-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 10px;flex-shrink:0}
+.cb-chip{padding:5px 12px;border-radius:99px;border:1.5px solid var(--primary);color:var(--primary);background:#fff;font-size:11px;cursor:pointer;transition:all .15s}
+.cb-chip:hover{background:var(--primary);color:#fff}
+.cb-input-row{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0;background:#fff}
+.cb-input-row input{flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:20px;font-size:13px;outline:none}
+.cb-input-row input:focus{border-color:var(--primary)}
+.cb-input-row button{width:36px;height:36px;border-radius:50%;background:var(--primary);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+</style>
+
+<!-- Bouton flottant -->
+<button id="chatbot-btn" onclick="toggleChatbot()" title="Assistant Ya Matériels">💬</button>
+
+<!-- Panneau chat -->
+<div id="chatbot-panel" class="hidden">
+  <div class="cb-head">
+    <div class="cb-av">🤖</div>
+    <div>
+      <div class="cb-title">Assistant Ya Matériels</div>
+      <div class="cb-sub">Toujours disponible</div>
+    </div>
+    <button class="cb-close" onclick="toggleChatbot()">✕</button>
+  </div>
+  <div id="cb-messages" class="cb-messages"></div>
+  <div id="cb-chips" class="cb-chips"></div>
+  <div class="cb-input-row">
+    <input type="text" id="cb-input" placeholder="Posez votre question..." onkeydown="if(event.key==='Enter')sendChat()">
+    <button onclick="sendChat()">➤</button>
+  </div>
+</div>
+
+<script>
+// ── CHATBOT ───────────────────────────────────────────────────────────────────
+let chatOpen = false;
+
+const botKB = [
+  { keys:['bonjour','salut','hello','bonsoir'], reply:'Bonjour ! 👋 Je suis l\'assistant de Ya Matériels. Comment puis-je vous aider ?\n\n💡 Essayez une des questions ci-dessous !' },
+  { keys:['stock','inventaire','rupture','alerte'], reply:'📦 Pour gérer le stock :\n• Allez dans **Stock** pour voir les entrées/sorties\n• Les alertes apparaissent en rouge quand le stock est bas\n• Cliquez **Ajustement** pour corriger le stock manuellement\n• Utilisez les boutons **Excel/PDF** pour exporter l\'inventaire' },
+  { keys:['vente','vendre','caisse','pos'], reply:'💰 Pour faire une vente :\n1. Allez dans **Caisse (POS)**\n2. Sélectionnez les produits et quantités\n3. Cliquez **Encaisser**\n4. Entrez le montant reçu et validez\n\nLa monnaie à rendre est calculée automatiquement !' },
+  { keys:['facture','tva','ht','professionnel'], reply:'🧾 Pour la facture professionnelle :\n• Lors du paiement, sélectionnez **Facture professionnelle (TVA)**\n• La TVA à **18%** est calculée automatiquement\n• Le montant HT et TTC apparaissent sur la facture\n\n⚠️ Seuls les comptes **caisse** et **gestionnaire** peuvent émettre des factures.' },
+  { keys:['produit','article','ajouter produit','créer produit'], reply:'📦 Pour ajouter un produit :\n1. Allez dans **Produits**\n2. Cliquez **+ Nouveau produit**\n3. Remplissez le nom, prix d\'achat → les prix de vente PV1/PV2/PV3 se calculent automatiquement\n4. Définissez le stock initial' },
+  { keys:['achat','réception','livraison','fournisseur'], reply:'🚚 Pour enregistrer un achat :\n1. Allez dans **Achats**\n2. Cliquez **+ Nouvel achat / Réception**\n3. Choisissez le fournisseur et ajoutez les produits reçus\n4. Le stock se met à jour automatiquement !\n\n📥 Vous pouvez aussi **importer depuis Excel/CSV**.' },
+  { keys:['importer','import','excel','fichier'], reply:'📥 Pour importer des achats depuis Excel/CSV :\n1. Allez dans **Achats**\n2. Cliquez **📥 Importer Excel/CSV**\n3. Format : 3 colonnes → **Produit | Quantité | Prix unitaire**\n4. Le nom du produit doit correspondre à un produit existant' },
+  { keys:['client','crédit','solde'], reply:'👥 Gestion des clients :\n• Créez vos clients dans **Clients**\n• Un client peut payer en **crédit** (paiement différé)\n• Le solde dû s\'affiche avec une icône ⚠️\n• Vous pouvez imprimer des factures à leur nom' },
+  { keys:['comptabilité','bilan','rapport','chiffre','recette'], reply:'📊 Pour la comptabilité :\n• Allez dans **Comptabilité**\n• Consultez le bilan mensuel et les flux de trésorerie\n• Exportez en **Excel, PDF ou Word**\n• Le plan comptable liste toutes les transactions' },
+  { keys:['magasin','divo','yamoussoukro','boutique'], reply:'🏪 Ya Matériels gère **2 magasins** :\n• **Ya Matériels Divo**\n• **Ya Matériels Yamoussoukro**\n\nChaque magasin a son stock, ses ventes et ses comptes séparés. Changez de magasin via le sélecteur en haut à gauche.' },
+  { keys:['rôle','commercial','caissier','gérant','dg','admin'], reply:'👤 Les rôles disponibles :\n• **Admin** — accès total\n• **DG** — direction générale\n• **Gérant** — gestion magasin\n• **Gestionnaire** — stock et produits\n• **Caissier** — ventes + factures\n• **Commercial** — ventes uniquement (sans facture)' },
+  { keys:['prix','pv1','pv2','pv3','tarif'], reply:'🏷️ Les 3 niveaux de prix :\n• **PV1** (+25%) — tarif gros client\n• **PV2** (+50%) — tarif semi-gros\n• **PV3** (+100%) — tarif détail\n\nIls se calculent automatiquement depuis le prix d\'achat.' },
+  { keys:['mot de passe','identifiant','connexion','login'], reply:'🔐 Problème de connexion ?\n• Demandez à l\'**Admin** de réinitialiser votre mot de passe\n• L\'admin peut modifier les comptes dans **Utilisateurs**\n• Compte admin par défaut : **admin** / **admin123**' },
+  { keys:['dépense','charge'], reply:'💸 Pour les dépenses :\n• Allez dans **Dépenses**\n• Enregistrez les charges (loyer, transport, salaires...)\n• Elles sont intégrées dans la comptabilité automatiquement' },
+  { keys:['merci','super','parfait','bravo'], reply:'Avec plaisir ! 😊 Je suis là pour vous aider à tout moment. N\'hésitez pas si vous avez d\'autres questions !' },
+];
+
+const quickChips = ['📦 Stock', '💰 Ventes', '🧾 Facture', '📥 Importer', '👤 Rôles', '🏪 Magasins'];
+
+function toggleChatbot() {
+  chatOpen = !chatOpen;
+  const panel = document.getElementById('chatbot-panel');
+  panel.classList.toggle('visible', chatOpen);
+  panel.classList.toggle('hidden', !chatOpen);
+  if(chatOpen && document.getElementById('cb-messages').childElementCount === 0) {
+    cbAddMsg('Bonjour ! 👋 Je suis l\'assistant **Ya Matériels**.\nJe peux vous aider avec le stock, les ventes, les factures et plus encore.', 'bot');
+    renderChips(quickChips);
+  }
+  if(chatOpen) setTimeout(()=>document.getElementById('cb-input').focus(), 200);
+}
+
+function cbAddMsg(text, who) {
+  const el = document.getElementById('cb-messages');
+  const div = document.createElement('div');
+  div.className = 'cb-msg ' + who;
+  // Basic markdown: **bold**
+  div.innerHTML = text.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderChips(chips) {
+  const el = document.getElementById('cb-chips');
+  el.innerHTML = chips.map(c=>`<button class="cb-chip" onclick="chipClick('${c.replace(/'/g,"\\'")}')">${c}</button>`).join('');
+}
+
+function chipClick(text) {
+  // Strip emoji prefix
+  const q = text.replace(/^[^\w]+/, '').trim();
+  cbAddMsg(text, 'user');
+  document.getElementById('cb-chips').innerHTML = '';
+  processChat(q);
+}
+
+function sendChat() {
+  const input = document.getElementById('cb-input');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  cbAddMsg(text, 'user');
+  document.getElementById('cb-chips').innerHTML = '';
+  processChat(text);
+}
+
+function processChat(text) {
+  const q = text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+
+  // Search knowledge base
+  let best = null;
+  for(const entry of botKB) {
+    if(entry.keys.some(k => q.includes(k.normalize('NFD').replace(/[̀-ͯ]/g,'')))) {
+      best = entry;
+      break;
+    }
+  }
+
+  // Live data enrichment
+  if(best && best.keys.includes('stock') && rapportStockData?.length) {
+    const alertes = rapportStockData.filter(r => r.stock_final <= r.quantite_min);
+    if(alertes.length) {
+      const reply = best.reply + `\n\n⚠️ **${alertes.length} produit(s) en alerte** en ce moment :\n` +
+        alertes.slice(0,4).map(r=>`• ${r.nom} : ${r.stock_final} restant`).join('\n');
+      setTimeout(()=>{ cbAddMsg(reply,'bot'); renderChips(quickChips); }, 400);
+      return;
+    }
+  }
+
+  if(best) {
+    setTimeout(()=>{ cbAddMsg(best.reply,'bot'); renderChips(quickChips); }, 350);
+  } else {
+    // Fallback with context
+    const fallback = `Je n'ai pas bien compris "**${text}**" 🤔\n\nVoici ce que je peux vous expliquer :`;
+    setTimeout(()=>{ cbAddMsg(fallback,'bot'); renderChips(quickChips); }, 350);
+  }
+}
+</script>
+
 </body>
 </html>
