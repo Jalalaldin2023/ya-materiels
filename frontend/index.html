@@ -238,7 +238,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
 
     <nav class="sb-nav" id="sidebar-nav">
       <a onclick="showPage('dashboard')" data-page="dashboard"><span class="icon">📊</span> Tableau de bord</a>
-      <a onclick="showPage('pos')" data-page="pos" class="need-store"><span class="icon">🛒</span> Point de vente</a>
+      <a onclick="showPage('pos')" data-page="pos" class="need-store nav-pos"><span class="icon">🛒</span> Point de vente</a>
       <a onclick="showPage('ventes')" data-page="ventes" class="need-store"><span class="icon">📋</span> Ventes</a>
       <div class="nav-sep nav-gestionnaire">STOCK</div>
       <a onclick="showPage('produits')" data-page="produits" class="nav-gestionnaire need-store"><span class="icon">📦</span> Produits</a>
@@ -247,9 +247,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
       <div class="nav-sep">CLIENTS</div>
       <a onclick="showPage('clients')" data-page="clients" class="need-store"><span class="icon">👥</span> Clients</a>
       <a onclick="showPage('fournisseurs')" data-page="fournisseurs" class="nav-gestionnaire need-store"><span class="icon">🏭</span> Fournisseurs</a>
-      <div class="nav-sep nav-gerant">FINANCES</div>
-      <a onclick="showPage('depenses')" data-page="depenses" class="nav-gerant need-store"><span class="icon">💸</span> Dépenses</a>
-      <a onclick="showPage('comptabilite')" data-page="comptabilite" class="nav-gerant need-store"><span class="icon">📈</span> Comptabilité</a>
+      <div class="nav-sep nav-finances">FINANCES</div>
+      <a onclick="showPage('depenses')" data-page="depenses" class="nav-finances need-store"><span class="icon">💸</span> Dépenses</a>
+      <a onclick="showPage('comptabilite')" data-page="comptabilite" class="nav-finances need-store"><span class="icon">📈</span> Comptabilité</a>
+      <div class="nav-sep nav-analyse">ANALYSE & DÉCISION</div>
+      <a onclick="showPage('analyse')" data-page="analyse" class="nav-analyse need-store"><span class="icon">🔬</span> Analyse & Aide décision</a>
       <div class="nav-sep nav-admin">ADMINISTRATION</div>
       <a onclick="showPage('magasins')" data-page="magasins" class="nav-admin"><span class="icon">⚙️</span> Paramètres magasins</a>
       <a onclick="showPage('utilisateurs')" data-page="utilisateurs" class="nav-admin"><span class="icon">👤</span> Utilisateurs</a>
@@ -302,15 +304,18 @@ const fmtDT = s => s ? new Date(s).toLocaleString('fr-FR') : '-';
 const fmtD = s => s ? new Date(s).toLocaleDateString('fr-FR') : '-';
 
 function currentMagasin() { return allMagasins.find(m => m.id === currentMagasinId) || null; }
-function isAdmin()      { return currentUser?.role === 'admin'; }
-function isDG()         { return ['admin','dg'].includes(currentUser?.role); }
-function isGerant()     { return ['admin','dg','gerant'].includes(currentUser?.role); }
-function isGest()       { return ['admin','dg','gerant','gestionnaire'].includes(currentUser?.role); }
-function isCommercial() { return ['admin','dg','gerant','commercial'].includes(currentUser?.role); }
+function isAdmin()        { return currentUser?.role === 'admin'; }
+function isDG()           { return ['admin','dg'].includes(currentUser?.role); }
+function isGerant()       { return ['admin','dg','gerant'].includes(currentUser?.role); }
+function isGest()         { return ['admin','dg','gerant','gestionnaire'].includes(currentUser?.role); }
+function isCommercial()   { return ['admin','dg','gerant','resp_commercial','commercial'].includes(currentUser?.role); }
+function isRespComm()     { return ['admin','dg','gerant','resp_commercial'].includes(currentUser?.role); } // peut faire factures
+function isComptable()    { return ['admin','dg','gerant','comptable'].includes(currentUser?.role); }
+function canSeeAnalyse()  { return ['admin','dg','gerant','gestionnaire','resp_commercial','comptable'].includes(currentUser?.role); }
 // DG voit la vue consolidée comme l'admin
-function canSeeConsolide() { return ['admin','dg'].includes(currentUser?.role); }
+function canSeeConsolide(){ return ['admin','dg'].includes(currentUser?.role); }
 // Seul admin gère utilisateurs & paramètres
-function canAdmin()     { return currentUser?.role === 'admin'; }
+function canAdmin()       { return currentUser?.role === 'admin'; }
 
 async function api(path, opts={}) {
   try {
@@ -451,26 +456,39 @@ function updateStoreTag() {
 function updateUserPanel() {
   const u = currentUser;
   document.getElementById('user-nom').textContent = u.nom;
-  const labels = {admin:'Administrateur', dg:'Directeur Général', gerant:'Gérant', gestionnaire:'Gestionnaire', commercial:'Commercial', caissier:'Caissier'};
+  const labels = {admin:'Administrateur', dg:'Directeur Général', gerant:'Gérant', gestionnaire:'Gestionnaire', commercial:'Commercial', caissier:'Caissier', resp_commercial:'Resp. Commercial', comptable:'Comptable'};
   document.getElementById('user-role-lbl').textContent = labels[u.role] || u.role;
-  const colors = {admin:'#7c3aed', dg:'#b45309', gerant:'#0891b2', gestionnaire:'#0e9f6e', commercial:'#db2777', caissier:'#1a56db'};
+  const colors = {admin:'#7c3aed', dg:'#b45309', gerant:'#0891b2', gestionnaire:'#0e9f6e', commercial:'#db2777', caissier:'#1a56db', resp_commercial:'#be185d', comptable:'#0f766e'};
   const av = document.getElementById('user-av');
   av.style.background = colors[u.role] || '#1a56db';
   av.textContent = u.nom[0].toUpperCase();
 }
 
 function applyRoleNav() {
+  const role = currentUser?.role;
   // Paramètres & utilisateurs → admin uniquement
   document.querySelectorAll('.nav-admin').forEach(el => el.style.display = canAdmin() ? '' : 'none');
-  // Finances (dépenses, compta) → admin, DG, gérant
-  document.querySelectorAll('.nav-gerant').forEach(el => el.style.display = isGerant() ? '' : 'none');
-  // Stock, achats, produits, fournisseurs → admin, DG, gérant, gestionnaire
+  // Finances (dépenses, compta) → gérant, comptable, DG, admin
+  document.querySelectorAll('.nav-finances').forEach(el => el.style.display = (isGerant() || isComptable()) ? '' : 'none');
+  // Stock, achats, produits, fournisseurs → gestionnaire+
   document.querySelectorAll('.nav-gestionnaire').forEach(el => el.style.display = isGest() ? '' : 'none');
-  // Sélecteur de magasin : admin & DG voient tous les magasins
-  if(!canSeeConsolide()) setupStoreSwitcher();
-  else setupStoreSwitcher();
+  // POS → tout sauf comptable
+  document.querySelectorAll('.nav-pos').forEach(el => el.style.display = (role !== 'comptable') ? '' : 'none');
+  // Analyse → gestionnaire, resp_commercial, comptable, gérant, DG, admin
+  document.querySelectorAll('.nav-analyse').forEach(el => el.style.display = canSeeAnalyse() ? '' : 'none');
   // Pages qui nécessitent un magasin sélectionné
-  document.querySelectorAll('.need-store').forEach(el => el.style.display = currentMagasinId ? '' : 'none');
+  document.querySelectorAll('.need-store').forEach(el => {
+    if(!currentMagasinId) el.style.display = 'none';
+    else el.style.display = ''; // let other rules override if needed
+  });
+  // Re-apply role rules after need-store (order matters)
+  document.querySelectorAll('.nav-admin').forEach(el => el.style.display = canAdmin() ? '' : 'none');
+  document.querySelectorAll('.nav-finances').forEach(el => el.style.display = (isGerant() || isComptable()) ? '' : 'none');
+  document.querySelectorAll('.nav-gestionnaire').forEach(el => el.style.display = isGest() ? '' : 'none');
+  document.querySelectorAll('.nav-pos').forEach(el => el.style.display = (role !== 'comptable') ? '' : 'none');
+  document.querySelectorAll('.nav-analyse').forEach(el => el.style.display = canSeeAnalyse() ? '' : 'none');
+  // Sélecteur de magasin
+  setupStoreSwitcher();
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
@@ -478,7 +496,8 @@ const pageTitles = {
   dashboard:'Tableau de bord', pos:'Point de vente', ventes:'Ventes',
   produits:'Produits', stock:'Gestion du stock', achats:'Achats',
   clients:'Clients', fournisseurs:'Fournisseurs', depenses:'Dépenses',
-  comptabilite:'Comptabilité', magasins:'Paramètres des magasins', utilisateurs:'Utilisateurs'
+  comptabilite:'Comptabilité', magasins:'Paramètres des magasins', utilisateurs:'Utilisateurs',
+  analyse:'Analyse & Aide à la décision'
 };
 
 function showPage(page) {
@@ -914,7 +933,7 @@ async function ouvrirPaiement(){
             </label>
             ${currentUser.role==='commercial' ? `
             <div style="color:var(--text-muted);font-size:11px;padding:4px 0">
-              🔒 La facture est établie par la caisse
+              🔒 La facture est établie par la caisse ou le responsable commercial
             </div>` : `
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
               <input type="radio" name="doc-type" value="facture"> Facture professionnelle (TVA)
@@ -2903,7 +2922,7 @@ async function saveMagasin(id){
 // ── UTILISATEURS ──────────────────────────────────────────────────────────────
 async function pageUtilisateurs(){if(!canAdmin()){restricted();return;}
   const data=await api('/auth/utilisateurs');
-  const rL={admin:'Administrateur',dg:'Directeur Général',gerant:'Gérant',gestionnaire:'Gestionnaire',commercial:'Commercial',caissier:'Caissier'};
+  const rL={admin:'Administrateur',dg:'Directeur Général',gerant:'Gérant',gestionnaire:'Gestionnaire',commercial:'Commercial',caissier:'Caissier',resp_commercial:'Resp. Commercial',comptable:'Comptable'};
   const rC={admin:'badge-purple',dg:'badge-orange',gerant:'badge-teal',gestionnaire:'badge-success',commercial:'badge-pink',caissier:'badge-info'};
   document.getElementById('content').innerHTML=`
     <div class="card">
@@ -2946,8 +2965,10 @@ function modalUser(id=null,nom='',username='',role='caissier',magasinId=null,act
       <div class="form-row">
         <div class="form-group"><label>Rôle</label>
           <select id="u_r" onchange="toggleMagasinSel(this.value)">
-            <option value="caissier" ${role==='caissier'?'selected':''}>🔵 Caissier — POS & ventes</option>
-            <option value="commercial" ${role==='commercial'?'selected':''}>🩷 Commercial — Ventes & clients</option>
+            <option value="caissier" ${role==='caissier'?'selected':''}>🔵 Caissier — POS & ventes + factures</option>
+            <option value="commercial" ${role==='commercial'?'selected':''}>🩷 Commercial — Ventes sans facture</option>
+            <option value="resp_commercial" ${role==='resp_commercial'?'selected':''}>🌸 Resp. Commercial — Ventes + factures + clients</option>
+            <option value="comptable" ${role==='comptable'?'selected':''}>🧮 Comptable — Finances & rapports</option>
             <option value="gestionnaire" ${role==='gestionnaire'?'selected':''}>🟢 Gestionnaire — Stock & achats</option>
             <option value="gerant" ${role==='gerant'?'selected':''}>🩵 Gérant — Tout le magasin</option>
             <option value="dg" ${role==='dg'?'selected':''}>🟠 DG — Tous magasins + finances</option>
@@ -2986,6 +3007,7 @@ async function saveUser(id){
   const role=document.getElementById('u_r').value;
   const actif=parseInt(document.getElementById('u_a').value);
   const magasinId=['admin','dg'].includes(role)?null:(parseInt(document.getElementById('u_m').value)||null);
+  // resp_commercial et comptable ont aussi besoin d'un magasin
   if(!nom||!username){toast('Nom et identifiant requis !','danger');return;}
   if(!id&&!pwd){toast('Mot de passe requis !','danger');return;}
   await api(id?`/auth/utilisateurs/${id}`:'/auth/utilisateurs',{method:id?'PUT':'POST',body:{nom,username,password:pwd||null,role,magasin_id:magasinId,actif}});
@@ -3005,7 +3027,8 @@ const pages={
   dashboard:pageDashboard, pos:pagePos, ventes:pageVentes,
   produits:pageProduits, stock:pageStock, achats:pageAchats,
   clients:pageClients, fournisseurs:pageFournisseurs, depenses:pageDepenses,
-  comptabilite:pageComptabilite, magasins:pageMagasins, utilisateurs:pageUtilisateurs
+  comptabilite:pageComptabilite, magasins:pageMagasins, utilisateurs:pageUtilisateurs,
+  analyse:pageAnalyse
 };
 
 // ── Clock & Alertes ───────────────────────────────────────────────────────────
@@ -3018,6 +3041,457 @@ async function checkAlertesStock(){
     if(a.length>0){b.textContent=`⚠️ ${a.length} stock bas`;b.classList.remove('hidden');}
     else b.classList.add('hidden');
   }catch(e){}
+}
+
+// ── ANALYSE & AIDE À LA DÉCISION ─────────────────────────────────────────────
+let analyseCharts = [];
+
+async function pageAnalyse() {
+  if(!canSeeAnalyse()){restricted();return;}
+  if(!currentMagasinId){noStore();return;}
+
+  // Fetch all data in parallel
+  const [dash, rapport, achats, depenses, ventes] = await Promise.all([
+    api(`/dashboard?magasin_id=${currentMagasinId}`),
+    api(`/stock/rapport?magasin_id=${currentMagasinId}`),
+    api(`/achats?magasin_id=${currentMagasinId}`),
+    api(`/depenses?magasin_id=${currentMagasinId}`),
+    api(`/ventes?magasin_id=${currentMagasinId}`)
+  ]);
+
+  const m = currentMagasin();
+
+  // ── Calculs analytiques ──
+  const caTotal     = ventes.reduce((s,v)=>s+v.total,0);
+  const achatTotal  = achats.reduce((s,a)=>s+a.total,0);
+  const depTotal    = depenses.reduce((s,d)=>s+d.montant,0);
+  const marge       = caTotal - achatTotal;
+  const tauxMarge   = caTotal > 0 ? Math.round(marge / caTotal * 100) : 0;
+  const benefice    = marge - depTotal;
+  const valeurStock = rapport.reduce((s,r)=>s+r.cout_revient,0);
+  const valeurPV1   = rapport.reduce((s,r)=>s+r.valeur_pv1,0);
+  const margeStock  = valeurPV1 - valeurStock;
+
+  // Top produits (par valeur stock)
+  const topProd = [...rapport].sort((a,b)=>b.cout_revient-a.cout_revient).slice(0,5);
+
+  // Alertes stock
+  const alertes = rapport.filter(r=>r.stock_final<=r.quantite_min);
+  const ruptures = rapport.filter(r=>r.stock_final<=0);
+
+  // Produits à fort stock (peut-être surstock)
+  const surstock = rapport.filter(r=>r.total_sorties===0 && r.stock_final>0).slice(0,5);
+
+  // Rotation du stock (sorties / stock moyen) — simple indicator
+  const rotMoy = rapport.length ? rapport.reduce((s,r)=>{
+    const moy = r.stock_final + r.total_sorties;
+    return s + (moy>0 ? r.total_sorties/moy : 0);
+  },0) / rapport.length : 0;
+
+  // Ventes par mois (6 derniers mois)
+  const now = new Date();
+  const moisLabels = [];
+  const moisVentes = [];
+  for(let i=5;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    moisLabels.push(d.toLocaleString('fr-FR',{month:'short',year:'2-digit'}));
+    const total = ventes.filter(v=>{
+      const vd = new Date(v.created_at);
+      return vd.getFullYear()===d.getFullYear() && vd.getMonth()===d.getMonth();
+    }).reduce((s,v)=>s+v.total,0);
+    moisVentes.push(total);
+  }
+
+  // Catégories : répartition du CA potentiel (valeur stock PV1 par catégorie)
+  const catMap = {};
+  rapport.forEach(r=>{
+    const c = r.categorie||'Sans catégorie';
+    catMap[c] = (catMap[c]||0) + (r.valeur_pv1||0);
+  });
+  const catLabels = Object.keys(catMap);
+  const catVals   = Object.values(catMap);
+  const catColors = ['#1a56db','#0e9f6e','#c27803','#e02424','#7c3aed','#0891b2','#db2777','#b45309'];
+
+  // ── Recommandations intelligentes ──
+  const recommandations = [];
+  if(ruptures.length > 0)
+    recommandations.push({type:'danger', icon:'🚨', titre:'Ruptures de stock', texte:`${ruptures.length} produit(s) en rupture totale : ${ruptures.slice(0,3).map(r=>r.nom).join(', ')}${ruptures.length>3?' …':''}`});
+  if(alertes.length > 0)
+    recommandations.push({type:'warning', icon:'⚠️', titre:'Stocks faibles', texte:`${alertes.length} produit(s) sous le seuil minimum — réapprovisionnement recommandé.`});
+  if(tauxMarge < 15)
+    recommandations.push({type:'danger', icon:'📉', titre:'Marge faible', texte:`Votre taux de marge brute est de ${tauxMarge}%. Considérez revoir vos prix de vente ou réduire vos coûts d\'achat.`});
+  else if(tauxMarge > 40)
+    recommandations.push({type:'success', icon:'🎯', titre:'Excellente marge', texte:`Taux de marge brute de ${tauxMarge}% — votre politique tarifaire est très performante.`});
+  if(surstock.length > 0)
+    recommandations.push({type:'warning', icon:'📦', titre:'Produits sans rotation', texte:`${surstock.length} produit(s) jamais vendus en stock : ${surstock.slice(0,3).map(r=>r.nom).join(', ')}`});
+  if(benefice > 0)
+    recommandations.push({type:'success', icon:'✅', titre:'Résultat positif', texte:`Résultat net estimé positif : ${fmt(benefice)}. Continuez sur cette lancée !`});
+  else if(benefice < 0)
+    recommandations.push({type:'danger', icon:'🔴', titre:'Résultat négatif', texte:`Résultat net estimé négatif : ${fmt(benefice)}. Réduisez les dépenses ou augmentez les ventes.`});
+  if(recommandations.length === 0)
+    recommandations.push({type:'success', icon:'👍', titre:'Situation saine', texte:'Tous les indicateurs sont dans les normes. Continuez le bon travail !'});
+
+  // Destroy previous charts
+  analyseCharts.forEach(c=>{try{c.destroy();}catch(e){}});
+  analyseCharts = [];
+
+  document.getElementById('content').innerHTML = `
+  <style>
+    .an-tabs{display:flex;gap:3px;border-bottom:2px solid var(--border);margin-bottom:18px;flex-wrap:wrap}
+    .an-tab{padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text-muted);border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s}
+    .an-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+    .an-section{display:none}.an-section.active{display:block}
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+    .kpi-card{background:#fff;border-radius:10px;border:1px solid var(--border);padding:16px;position:relative;overflow:hidden}
+    .kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--kpi-color,var(--primary))}
+    .kpi-lbl{font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+    .kpi-val{font-size:22px;font-weight:800;color:var(--kpi-color,var(--text))}
+    .kpi-sub{font-size:11px;color:var(--text-muted);margin-top:4px}
+    .kpi-trend{font-size:12px;font-weight:600;margin-top:4px}
+    .chart-card{background:#fff;border-radius:10px;border:1px solid var(--border);padding:18px;margin-bottom:16px}
+    .chart-card h4{font-size:13px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+    .reco-card{border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start}
+    .reco-card.success{background:#f0fdf4;border:1px solid #86efac}
+    .reco-card.warning{background:#fffbeb;border:1px solid #fcd34d}
+    .reco-card.danger{background:#fef2f2;border:1px solid #fca5a5}
+    .reco-icon{font-size:22px;flex-shrink:0;margin-top:2px}
+    .reco-body{}
+    .reco-titre{font-weight:700;font-size:13px;margin-bottom:3px}
+    .reco-texte{font-size:12px;color:#374151;line-height:1.5}
+    .rank-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+    .rank-row:last-child{border-bottom:none}
+    .rank-num{width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .rank-bar-wrap{flex:1;background:#f3f4f6;border-radius:99px;height:8px;overflow:hidden}
+    .rank-bar{height:8px;border-radius:99px;background:var(--primary);transition:width .5s}
+    .perf-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .detail-table th{background:#1a56db;color:#fff}
+  </style>
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,var(--primary),var(--primary-dark));border-radius:12px;padding:18px 22px;margin-bottom:18px;color:#fff">
+    <div style="font-size:12px;opacity:.8;margin-bottom:4px">🔬 ${m?.nom||''} — Analyse intelligente</div>
+    <div style="font-size:20px;font-weight:800">Aide à la décision</div>
+    <div style="font-size:12px;opacity:.75;margin-top:4px">Données au ${new Date().toLocaleDateString('fr-FR')} · ${ventes.length} ventes · ${rapport.length} produits</div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="an-tabs">
+    <button class="an-tab active" onclick="switchAnTab('an-vue',this)">📊 Vue d'ensemble</button>
+    <button class="an-tab" onclick="switchAnTab('an-ventes',this)">💰 Ventes</button>
+    <button class="an-tab" onclick="switchAnTab('an-stock',this)">📦 Stock & Rotation</button>
+    <button class="an-tab" onclick="switchAnTab('an-rentabilite',this)">📈 Rentabilité</button>
+    <button class="an-tab" onclick="switchAnTab('an-reco',this)">🤖 Recommandations (${recommandations.length})</button>
+  </div>
+
+  <!-- ══ VUE D'ENSEMBLE ══ -->
+  <div id="an-vue" class="an-section active">
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--kpi-color:#1a56db">
+        <div class="kpi-lbl">Chiffre d'affaires</div>
+        <div class="kpi-val">${fmt(caTotal)}</div>
+        <div class="kpi-sub">${ventes.length} ventes enregistrées</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#0e9f6e">
+        <div class="kpi-lbl">Marge brute</div>
+        <div class="kpi-val">${fmt(marge)}</div>
+        <div class="kpi-sub">Taux : ${tauxMarge}%</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:${benefice>=0?'#0e9f6e':'#e02424'}">
+        <div class="kpi-lbl">Résultat net estimé</div>
+        <div class="kpi-val">${fmt(benefice)}</div>
+        <div class="kpi-sub">Marge − dépenses (${fmt(depTotal)})</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#c27803">
+        <div class="kpi-lbl">Valeur stock (coût)</div>
+        <div class="kpi-val">${fmt(valeurStock)}</div>
+        <div class="kpi-sub">PV1 potentiel : ${fmt(valeurPV1)}</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#7c3aed">
+        <div class="kpi-lbl">Produits en stock</div>
+        <div class="kpi-val">${rapport.length}</div>
+        <div class="kpi-sub">⚠️ ${alertes.length} alertes · 🚨 ${ruptures.length} ruptures</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#0891b2">
+        <div class="kpi-lbl">Rotation moyenne</div>
+        <div class="kpi-val">${(rotMoy*100).toFixed(0)}%</div>
+        <div class="kpi-sub">Flux sorties / stock</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+      <div class="chart-card">
+        <h4>📅 Évolution du CA — 6 derniers mois</h4>
+        <canvas id="chartCA" height="90"></canvas>
+      </div>
+      <div class="chart-card">
+        <h4>🏷️ Stock par catégorie (valeur PV1)</h4>
+        <canvas id="chartCat" height="160"></canvas>
+      </div>
+    </div>
+
+    <!-- Top alertes rapides -->
+    ${recommandations.slice(0,3).map(r=>`
+    <div class="reco-card ${r.type}">
+      <div class="reco-icon">${r.icon}</div>
+      <div class="reco-body"><div class="reco-titre">${r.titre}</div><div class="reco-texte">${r.texte}</div></div>
+    </div>`).join('')}
+  </div>
+
+  <!-- ══ VENTES ══ -->
+  <div id="an-ventes" class="an-section">
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--kpi-color:#1a56db">
+        <div class="kpi-lbl">Total ventes</div>
+        <div class="kpi-val">${fmt(caTotal)}</div>
+        <div class="kpi-sub">${ventes.length} transactions</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#0e9f6e">
+        <div class="kpi-lbl">Panier moyen</div>
+        <div class="kpi-val">${ventes.length ? fmt(caTotal/ventes.length) : '—'}</div>
+        <div class="kpi-sub">Valeur moyenne par vente</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#c27803">
+        <div class="kpi-lbl">Mois en cours</div>
+        <div class="kpi-val">${fmt(moisVentes[5])}</div>
+        <div class="kpi-sub">vs mois précédent : ${moisVentes[4]>0?Math.round((moisVentes[5]-moisVentes[4])/moisVentes[4]*100)+'%':'—'}</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#7c3aed">
+        <div class="kpi-lbl">Ventes payées</div>
+        <div class="kpi-val">${ventes.filter(v=>v.statut==='payee').length}</div>
+        <div class="kpi-sub">${ventes.filter(v=>v.statut!=='payee').length} en crédit</div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h4>📊 Évolution mensuelle du chiffre d'affaires</h4>
+      <canvas id="chartVentes" height="80"></canvas>
+    </div>
+    <div class="chart-card">
+      <h4>🏆 Top 5 produits — Valeur stock (coût de revient)</h4>
+      ${topProd.map((p,i)=>{
+        const max = topProd[0].cout_revient || 1;
+        return `<div class="rank-row">
+          <div class="rank-num">${i+1}</div>
+          <div style="flex:1;min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nom}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${p.categorie||''} · ${p.stock_final} ${p.unite}</div></div>
+          <div class="rank-bar-wrap"><div class="rank-bar" style="width:${Math.round(p.cout_revient/max*100)}%"></div></div>
+          <div style="font-weight:700;width:90px;text-align:right;font-size:13px">${fmt(p.cout_revient)}</div>
+        </div>`;}).join('')}
+    </div>
+  </div>
+
+  <!-- ══ STOCK & ROTATION ══ -->
+  <div id="an-stock" class="an-section">
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--kpi-color:#c27803">
+        <div class="kpi-lbl">Capital immobilisé</div>
+        <div class="kpi-val">${fmt(valeurStock)}</div>
+        <div class="kpi-sub">Coût d'achat du stock actuel</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#0e9f6e">
+        <div class="kpi-lbl">Valeur PV1 potentielle</div>
+        <div class="kpi-val">${fmt(valeurPV1)}</div>
+        <div class="kpi-sub">Marge latente : ${fmt(margeStock)}</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#e02424">
+        <div class="kpi-lbl">Ruptures de stock</div>
+        <div class="kpi-val">${ruptures.length}</div>
+        <div class="kpi-sub">Ventes perdues possibles</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#7c3aed">
+        <div class="kpi-lbl">Produits sans vente</div>
+        <div class="kpi-val">${surstock.length}</div>
+        <div class="kpi-sub">Capital dormant</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h4>📦 Top 10 — Stock par produit (unités)</h4>
+      <canvas id="chartStock" height="100"></canvas>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="chart-card">
+        <h4>🚨 Produits en alerte / rupture</h4>
+        ${alertes.length ? `<table class="detail-table"><thead><tr><th>Produit</th><th>Stock</th><th>Min</th><th>Manque</th></tr></thead><tbody>
+          ${alertes.slice(0,8).map(r=>`<tr>
+            <td>${r.nom}</td>
+            <td><span style="font-weight:700;color:${r.stock_final<=0?'#e02424':'#c27803'}">${r.stock_final}</span></td>
+            <td>${r.quantite_min}</td>
+            <td style="color:#e02424;font-weight:600">−${Math.max(0,r.quantite_min-r.stock_final)}</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<div style="padding:20px;text-align:center;color:var(--success)">✅ Aucune alerte de stock</div>'}
+      </div>
+      <div class="chart-card">
+        <h4>😴 Produits sans rotation (jamais vendus)</h4>
+        ${surstock.length ? `<table class="detail-table"><thead><tr><th>Produit</th><th>Stock</th><th>Valeur</th></tr></thead><tbody>
+          ${surstock.slice(0,8).map(r=>`<tr>
+            <td>${r.nom}</td>
+            <td>${r.stock_final} ${r.unite}</td>
+            <td style="color:#c27803;font-weight:600">${fmt(r.cout_revient)}</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<div style="padding:20px;text-align:center;color:var(--success)">✅ Tous les produits ont eu des sorties</div>'}
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ RENTABILITÉ ══ -->
+  <div id="an-rentabilite" class="an-section">
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--kpi-color:#1a56db">
+        <div class="kpi-lbl">CA total</div>
+        <div class="kpi-val">${fmt(caTotal)}</div>
+        <div class="kpi-sub">Recettes brutes</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#e02424">
+        <div class="kpi-lbl">Coût des achats</div>
+        <div class="kpi-val">${fmt(achatTotal)}</div>
+        <div class="kpi-sub">Marchandises achetées</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#c27803">
+        <div class="kpi-lbl">Dépenses</div>
+        <div class="kpi-val">${fmt(depTotal)}</div>
+        <div class="kpi-sub">Charges de fonctionnement</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#0e9f6e">
+        <div class="kpi-lbl">Marge brute</div>
+        <div class="kpi-val">${fmt(marge)}</div>
+        <div class="kpi-sub">${tauxMarge}% du CA</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:${benefice>=0?'#0e9f6e':'#e02424'}">
+        <div class="kpi-lbl">Résultat net</div>
+        <div class="kpi-val">${fmt(benefice)}</div>
+        <div class="kpi-sub">${caTotal>0?Math.round(benefice/caTotal*100)+'% du CA':''}</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#7c3aed">
+        <div class="kpi-lbl">Marge stock potentielle</div>
+        <div class="kpi-val">${fmt(margeStock)}</div>
+        <div class="kpi-sub">Si tout le stock est vendu à PV1</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h4>📊 Structure financière — CA, Achats, Dépenses, Résultat</h4>
+      <canvas id="chartRenta" height="80"></canvas>
+    </div>
+
+    <div class="chart-card">
+      <h4>📐 Analyse par catégorie — Valeur stock coût vs PV1</h4>
+      <canvas id="chartCatComp" height="100"></canvas>
+    </div>
+  </div>
+
+  <!-- ══ RECOMMANDATIONS ══ -->
+  <div id="an-reco" class="an-section">
+    <div style="background:#eff6ff;border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+      <div style="font-size:28px">🤖</div>
+      <div>
+        <div style="font-weight:700;font-size:14px">Recommandations automatiques</div>
+        <div style="font-size:12px;color:var(--text-muted)">Basées sur l'analyse de vos données en temps réel</div>
+      </div>
+    </div>
+    ${recommandations.map(r=>`
+    <div class="reco-card ${r.type}">
+      <div class="reco-icon">${r.icon}</div>
+      <div class="reco-body">
+        <div class="reco-titre">${r.titre}</div>
+        <div class="reco-texte">${r.texte}</div>
+      </div>
+    </div>`).join('')}
+
+    <div class="chart-card" style="margin-top:16px">
+      <h4>📋 Synthèse des KPIs clés</h4>
+      <table class="detail-table"><thead><tr><th>Indicateur</th><th>Valeur</th><th>Statut</th></tr></thead>
+      <tbody>
+        <tr><td>Taux de marge brute</td><td><strong>${tauxMarge}%</strong></td>
+          <td><span class="badge ${tauxMarge>=20?'badge-success':'badge-danger'}">${tauxMarge>=20?'✅ Bon':'⚠️ Faible'}</span></td></tr>
+        <tr><td>Résultat net</td><td><strong>${fmt(benefice)}</strong></td>
+          <td><span class="badge ${benefice>=0?'badge-success':'badge-danger'}">${benefice>=0?'✅ Positif':'🔴 Négatif'}</span></td></tr>
+        <tr><td>Ruptures de stock</td><td><strong>${ruptures.length} produit(s)</strong></td>
+          <td><span class="badge ${ruptures.length===0?'badge-success':'badge-danger'}">${ruptures.length===0?'✅ Aucune':'🚨 Urgent'}</span></td></tr>
+        <tr><td>Alertes stock faible</td><td><strong>${alertes.length} produit(s)</strong></td>
+          <td><span class="badge ${alertes.length===0?'badge-success':'badge-warning'}">${alertes.length===0?'✅ OK':'⚠️ À surveiller'}</span></td></tr>
+        <tr><td>Produits sans rotation</td><td><strong>${surstock.length} produit(s)</strong></td>
+          <td><span class="badge ${surstock.length===0?'badge-success':'badge-warning'}">${surstock.length===0?'✅ OK':'⚠️ Surstock'}</span></td></tr>
+        <tr><td>Capital immobilisé</td><td><strong>${fmt(valeurStock)}</strong></td>
+          <td><span class="badge badge-info">ℹ️ Info</span></td></tr>
+      </tbody></table>
+    </div>
+  </div>`;
+
+  // ── Render charts ──
+  const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1a56db';
+
+  // Chart CA 6 mois (vue d'ensemble)
+  const ctx1 = document.getElementById('chartCA');
+  if(ctx1) analyseCharts.push(new Chart(ctx1,{
+    type:'bar',
+    data:{labels:moisLabels, datasets:[{label:'CA (FCFA)',data:moisVentes,backgroundColor:primary+'cc',borderColor:primary,borderWidth:2,borderRadius:6}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fmtN(v)},beginAtZero:true}}}
+  }));
+
+  // Pie catégories (vue d'ensemble)
+  const ctx2 = document.getElementById('chartCat');
+  if(ctx2 && catLabels.length) analyseCharts.push(new Chart(ctx2,{
+    type:'doughnut',
+    data:{labels:catLabels, datasets:[{data:catVals,backgroundColor:catColors.slice(0,catLabels.length),borderWidth:2}]},
+    options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:10},padding:6}}}}
+  }));
+
+  // Chart ventes mensuel (onglet ventes)
+  const ctx3 = document.getElementById('chartVentes');
+  if(ctx3) analyseCharts.push(new Chart(ctx3,{
+    type:'line',
+    data:{labels:moisLabels, datasets:[{label:'CA mensuel',data:moisVentes,backgroundColor:primary+'22',borderColor:primary,borderWidth:2.5,fill:true,tension:.4,pointRadius:5,pointBackgroundColor:primary}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fmtN(v)},beginAtZero:true}}}
+  }));
+
+  // Bar stock par produit (top 10)
+  const top10 = [...rapport].sort((a,b)=>b.stock_final-a.stock_final).slice(0,10);
+  const ctx4 = document.getElementById('chartStock');
+  if(ctx4) analyseCharts.push(new Chart(ctx4,{
+    type:'bar',
+    data:{labels:top10.map(r=>r.nom.length>18?r.nom.slice(0,18)+'…':r.nom),
+      datasets:[
+        {label:'Stock final',data:top10.map(r=>r.stock_final),backgroundColor:'#1a56dbcc',borderRadius:4},
+        {label:'Entrées totales',data:top10.map(r=>r.total_entrees),backgroundColor:'#0e9f6ecc',borderRadius:4}
+      ]},
+    options:{responsive:true,plugins:{legend:{position:'top'}},scales:{y:{beginAtZero:true}}}
+  }));
+
+  // Bar rentabilité (CA/Achats/Dépenses/Résultat)
+  const ctx5 = document.getElementById('chartRenta');
+  if(ctx5) analyseCharts.push(new Chart(ctx5,{
+    type:'bar',
+    data:{labels:['CA Total','Coût Achats','Dépenses','Résultat net'],
+      datasets:[{data:[caTotal,achatTotal,depTotal,Math.max(0,benefice)],
+        backgroundColor:[primary+'cc','#e02424cc','#c27803cc',benefice>=0?'#0e9f6ecc':'#e02424cc'],
+        borderWidth:0,borderRadius:8}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fmtN(v)},beginAtZero:true}}}
+  }));
+
+  // Grouped bar : coût vs PV1 par catégorie
+  const ctx6 = document.getElementById('chartCatComp');
+  if(ctx6) {
+    const catCout = {};
+    rapport.forEach(r=>{ const c=r.categorie||'Sans cat.'; catCout[c]=(catCout[c]||0)+(r.cout_revient||0); });
+    const cLabels = Object.keys(catCout);
+    analyseCharts.push(new Chart(ctx6,{
+      type:'bar',
+      data:{labels:cLabels,
+        datasets:[
+          {label:'Valeur coût',data:Object.values(catCout),backgroundColor:'#c27803cc',borderRadius:4},
+          {label:'Valeur PV1',data:cLabels.map(c=>catMap[c]||0),backgroundColor:primary+'cc',borderRadius:4}
+        ]},
+      options:{responsive:true,plugins:{legend:{position:'top'}},scales:{y:{ticks:{callback:v=>fmtN(v)},beginAtZero:true}}}
+    }));
+  }
+}
+
+function switchAnTab(id, btn) {
+  document.querySelectorAll('.an-section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.an-tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id)?.classList.add('active');
+  btn.classList.add('active');
 }
 
 updateClock();
@@ -3088,7 +3562,8 @@ const botKB = [
   { keys:['client','crédit','solde'], reply:'👥 Gestion des clients :\n• Créez vos clients dans **Clients**\n• Un client peut payer en **crédit** (paiement différé)\n• Le solde dû s\'affiche avec une icône ⚠️\n• Vous pouvez imprimer des factures à leur nom' },
   { keys:['comptabilité','bilan','rapport','chiffre','recette'], reply:'📊 Pour la comptabilité :\n• Allez dans **Comptabilité**\n• Consultez le bilan mensuel et les flux de trésorerie\n• Exportez en **Excel, PDF ou Word**\n• Le plan comptable liste toutes les transactions' },
   { keys:['magasin','divo','yamoussoukro','boutique'], reply:'🏪 Ya Matériels gère **2 magasins** :\n• **Ya Matériels Divo**\n• **Ya Matériels Yamoussoukro**\n\nChaque magasin a son stock, ses ventes et ses comptes séparés. Changez de magasin via le sélecteur en haut à gauche.' },
-  { keys:['rôle','commercial','caissier','gérant','dg','admin'], reply:'👤 Les rôles disponibles :\n• **Admin** — accès total\n• **DG** — direction générale\n• **Gérant** — gestion magasin\n• **Gestionnaire** — stock et produits\n• **Caissier** — ventes + factures\n• **Commercial** — ventes uniquement (sans facture)' },
+  { keys:['rôle','commercial','caissier','gérant','dg','admin','comptable','responsable'], reply:'👤 Les 8 rôles disponibles :\n• **Admin** — accès complet\n• **DG** — tous magasins + finances\n• **Gérant** — tout le magasin\n• **Gestionnaire** — stock & achats\n• **Resp. Commercial** — ventes + **factures** + clients\n• **Comptable** — finances, rapports, analyse\n• **Caissier** — POS + factures\n• **Commercial** — ventes uniquement (sans facture)' },
+  { keys:['analyse','décision','kpi','rentabilité','performance'], reply:'🔬 L\'onglet **Analyse & Aide à la décision** offre :\n• Vue d\'ensemble KPIs (CA, marge, résultat)\n• Évolution mensuelle du CA (graphique)\n• Analyse stock & rotation\n• Analyse rentabilité par catégorie\n• **Recommandations automatiques** basées sur vos données\n\nAccessible aux : Gérant, Gestionnaire, Resp. Commercial, Comptable, DG, Admin.' },
   { keys:['prix','pv1','pv2','pv3','tarif'], reply:'🏷️ Les 3 niveaux de prix :\n• **PV1** (+25%) — tarif gros client\n• **PV2** (+50%) — tarif semi-gros\n• **PV3** (+100%) — tarif détail\n\nIls se calculent automatiquement depuis le prix d\'achat.' },
   { keys:['mot de passe','identifiant','connexion','login'], reply:'🔐 Problème de connexion ?\n• Demandez à l\'**Admin** de réinitialiser votre mot de passe\n• L\'admin peut modifier les comptes dans **Utilisateurs**\n• Compte admin par défaut : **admin** / **admin123**' },
   { keys:['dépense','charge'], reply:'💸 Pour les dépenses :\n• Allez dans **Dépenses**\n• Enregistrez les charges (loyer, transport, salaires...)\n• Elles sont intégrées dans la comptabilité automatiquement' },
