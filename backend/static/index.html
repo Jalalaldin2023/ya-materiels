@@ -1358,42 +1358,58 @@ async function renderProduits(s='',cid=0){
 
       <!-- VUE COÛT DE REVIENT -->
       <div id="prod-cout" class="prod-section">
-        <div class="export-bar" style="margin-bottom:12px">
-          <strong style="font-size:13px">Exporter :</strong>
-          <button class="export-btn xlsx" onclick="exportCoutRevient('xlsx')">📗 Excel</button>
-          <button class="export-btn pdf" onclick="exportCoutRevient('pdf')">📕 PDF</button>
-          <button class="export-btn csv" onclick="exportCoutRevient('csv')">📄 CSV</button>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <span style="font-size:12px;color:var(--text-muted)">✏️ Cliquez sur les cellules en bleu pour modifier · <kbd style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px">Entrée</kbd> ou <kbd style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px">Tab</kbd> pour sauvegarder</span>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <button class="export-btn xlsx" onclick="exportCoutRevient('xlsx')">📗 Excel</button>
+            <button class="export-btn pdf" onclick="exportCoutRevient('pdf')">📕 PDF</button>
+            <button class="export-btn csv" onclick="exportCoutRevient('csv')">📄 CSV</button>
+          </div>
         </div>
-        <div class="table-wrap"><table>
+        <div class="table-wrap"><table id="tbl-cout">
           <thead>
             <tr>
-              <th>Produit</th><th>Catégorie</th><th>Unité</th>
+              <th>Produit</th>
               <th style="text-align:right">Px Achat</th>
-              <th style="text-align:right">Coût unitaire</th>
+              <th style="text-align:right;background:#dbeafe;color:#1e40af">🚚 Transport</th>
+              <th style="text-align:right;background:#fce7f3;color:#9d174d">🔧 Manutention</th>
+              <th style="text-align:right;background:#f0fdf4;color:#065f46">Coût unitaire</th>
               <th style="text-align:right">Stock</th>
               <th style="text-align:right">Coût revient total</th>
               <th style="text-align:right">PV1</th>
-              <th style="text-align:right">Marge PV1</th>
+              <th style="text-align:right">Marge</th>
             </tr>
           </thead>
           <tbody>
             ${data.map(p=>{
-              const cu = p.prix_achat||0;              // coût de revient unitaire
-              const cr = cu*(p.quantite||0);            // coût de revient total
+              const tr  = p.transport||0;
+              const man = p.manutention||0;
+              const cu  = (p.prix_achat||0) + tr + man;
+              const cr  = cu*(p.quantite||0);
               const marge = p.prix_vente>0 ? Math.round((p.prix_vente-cu)/p.prix_vente*100) : 0;
               const margeColor = marge>=30?'var(--success)':marge>=15?'var(--warning)':'var(--danger)';
-              return `<tr>
-                <td><strong>${p.nom}</strong></td>
-                <td>${p.categorie_nom||'-'}</td>
-                <td>${p.unite}</td>
+              return `<tr data-id="${p.id}">
+                <td><strong>${p.nom}</strong><br><small style="color:var(--text-muted)">${p.categorie_nom||''}</small></td>
                 <td style="text-align:right">${fmt(p.prix_achat)}</td>
-                <td style="text-align:right;font-weight:700;color:var(--primary)">${fmt(cu)}</td>
+                <td style="text-align:right;background:#eff6ff;padding:4px">
+                  <input type="number" class="inline-prix" value="${tr}" min="0"
+                    style="width:90px;text-align:right;border:1.5px solid #93c5fd;border-radius:5px;padding:4px 6px;font-size:12px;font-weight:600;color:#1e40af"
+                    onchange="savePrixInline(${p.id},'transport',this)"
+                    onkeydown="if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();savePrixInline(${p.id},'transport',this)}">
+                </td>
+                <td style="text-align:right;background:#fdf2f8;padding:4px">
+                  <input type="number" class="inline-prix" value="${man}" min="0"
+                    style="width:90px;text-align:right;border:1.5px solid #f9a8d4;border-radius:5px;padding:4px 6px;font-size:12px;font-weight:600;color:#9d174d"
+                    onchange="savePrixInline(${p.id},'manutention',this)"
+                    onkeydown="if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();savePrixInline(${p.id},'manutention',this)}">
+                </td>
+                <td style="text-align:right;font-weight:700;color:#065f46;background:#f0fdf4" id="cu-${p.id}">${fmt(cu)}</td>
                 <td style="text-align:right">${p.quantite}</td>
-                <td style="text-align:right;font-weight:700;color:var(--warning)">${fmt(cr)}</td>
+                <td style="text-align:right;font-weight:700;color:var(--warning)" id="cr-${p.id}">${fmt(cr)}</td>
                 <td style="text-align:right">${fmt(p.prix_vente)}</td>
                 <td style="text-align:right">
-                  <span style="color:${margeColor};font-weight:700">${marge}%</span>
-                  <div class="marge-bar"><div class="marge-bar-fill" style="width:${Math.min(marge,100)}%;background:${margeColor}"></div></div>
+                  <span style="color:${margeColor};font-weight:700" id="mg-${p.id}">${marge}%</span>
+                  <div class="marge-bar"><div class="marge-bar-fill" style="width:${Math.min(Math.max(marge,0),100)}%;background:${margeColor}"></div></div>
                 </td>
               </tr>`;
             }).join('')||'<tr><td colspan="9" class="text-muted" style="text-align:center;padding:16px">Aucun produit</td></tr>'}
@@ -1411,26 +1427,53 @@ async function renderProduits(s='',cid=0){
 
       <!-- VUE GRILLE DE PRIX -->
       <div id="prod-prix" class="prod-section">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+          ✏️ Cliquez sur <span style="background:#dbeafe;padding:1px 6px;border-radius:4px;color:#1e40af;font-weight:600">PV1</span>
+          <span style="background:#fef9c3;padding:1px 6px;border-radius:4px;color:#854d0e;font-weight:600">PV2</span>
+          <span style="background:#fce7f3;padding:1px 6px;border-radius:4px;color:#9d174d;font-weight:600">PV3</span> pour modifier les prix directement.
+          Appuyez sur <kbd style="background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:11px">Entrée</kbd> pour sauvegarder.
+        </div>
         <div class="table-wrap"><table>
           <thead>
             <tr>
-              <th>Produit</th><th>Px Achat</th>
-              <th style="background:#dbeafe;color:#1e40af">PV1 (+25%)</th>
-              <th style="background:#fef9c3;color:#854d0e">PV2 (+50%)</th>
-              <th style="background:#fce7f3;color:#9d174d">PV3 (+100%)</th>
-              <th>Stock</th><th>Valeur (PV1)</th>
+              <th>Produit</th>
+              <th style="text-align:right">Px Achat</th>
+              <th style="text-align:right">Transport</th>
+              <th style="text-align:right">Manut.</th>
+              <th style="text-align:right;background:#dbeafe;color:#1e40af">🔵 PV1 (+25%)</th>
+              <th style="text-align:right;background:#fef9c3;color:#854d0e">🟡 PV2 (+50%)</th>
+              <th style="text-align:right;background:#fce7f3;color:#9d174d">🩷 PV3 (+100%)</th>
+              <th style="text-align:right">Stock</th>
+              <th style="text-align:right">Valeur PV1</th>
             </tr>
           </thead>
           <tbody>
             ${data.map(p=>`
-              <tr>
+              <tr data-id="${p.id}">
                 <td><strong>${p.nom}</strong><br><small style="color:var(--text-muted)">${p.categorie_nom||''}</small></td>
-                <td>${fmt(p.prix_achat)}</td>
-                <td style="background:#f0f9ff;font-weight:600">${fmt(p.prix_vente)}</td>
-                <td style="background:#fefce8;font-weight:600">${fmt(p.prix_vente2)}</td>
-                <td style="background:#fdf2f8;font-weight:600">${fmt(p.prix_vente3)}</td>
-                <td>${stockBadge(p.quantite,p.quantite_min)}</td>
-                <td style="font-weight:600;color:var(--success)">${fmt((p.prix_vente||0)*(p.quantite||0))}</td>
+                <td style="text-align:right;color:var(--text-muted)">${fmt(p.prix_achat)}</td>
+                <td style="text-align:right;color:#1e40af;font-size:12px">${p.transport>0?fmt(p.transport):'—'}</td>
+                <td style="text-align:right;color:#9d174d;font-size:12px">${p.manutention>0?fmt(p.manutention):'—'}</td>
+                <td style="text-align:right;background:#f0f9ff;padding:4px">
+                  <input type="number" class="inline-prix" value="${p.prix_vente||0}" min="0"
+                    style="width:100px;text-align:right;border:1.5px solid #93c5fd;border-radius:5px;padding:4px 6px;font-size:12px;font-weight:700;color:#1e40af"
+                    onchange="savePrixInline(${p.id},'prix_vente',this)"
+                    onkeydown="if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();savePrixInline(${p.id},'prix_vente',this)}">
+                </td>
+                <td style="text-align:right;background:#fefce8;padding:4px">
+                  <input type="number" class="inline-prix" value="${p.prix_vente2||0}" min="0"
+                    style="width:100px;text-align:right;border:1.5px solid #fcd34d;border-radius:5px;padding:4px 6px;font-size:12px;font-weight:700;color:#854d0e"
+                    onchange="savePrixInline(${p.id},'prix_vente2',this)"
+                    onkeydown="if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();savePrixInline(${p.id},'prix_vente2',this)}">
+                </td>
+                <td style="text-align:right;background:#fdf2f8;padding:4px">
+                  <input type="number" class="inline-prix" value="${p.prix_vente3||0}" min="0"
+                    style="width:100px;text-align:right;border:1.5px solid #f9a8d4;border-radius:5px;padding:4px 6px;font-size:12px;font-weight:700;color:#9d174d"
+                    onchange="savePrixInline(${p.id},'prix_vente3',this)"
+                    onkeydown="if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();savePrixInline(${p.id},'prix_vente3',this)}">
+                </td>
+                <td style="text-align:right">${stockBadge(p.quantite,p.quantite_min)}</td>
+                <td style="text-align:right;font-weight:600;color:var(--success)">${fmt((p.prix_vente||0)*(p.quantite||0))}</td>
               </tr>`).join('')}
           </tbody>
         </table></div>
@@ -1444,22 +1487,68 @@ function switchProdTab(id,btn){
   document.getElementById(id)?.classList.add('active'); btn.classList.add('active');
 }
 
+async function savePrixInline(prodId, champ, input) {
+  const val = parseFloat(input.value) || 0;
+  input.style.borderColor = '#fcd34d'; // indication sauvegarde en cours
+  try {
+    await api(`/produits/${prodId}/prix`, { method:'PATCH', body:{ [champ]: val } });
+    input.style.borderColor = '#86efac'; // vert = sauvegardé
+    setTimeout(() => input.style.borderColor = '', 1500);
+
+    // Recalcul du coût unitaire en live si dans l'onglet coût
+    const row = input.closest('tr');
+    if(row && (champ === 'transport' || champ === 'manutention')) {
+      const pid = row.dataset.id;
+      // Trouver les inputs transport et manutention dans la même ligne
+      const inputs = row.querySelectorAll('.inline-prix');
+      const tr  = parseFloat(inputs[0]?.value) || 0;
+      const man = parseFloat(inputs[1]?.value) || 0;
+      // Récupérer prix_achat depuis produitsData
+      const prod = produitsData.find(p => p.id == pid);
+      if(prod) {
+        const cu = (prod.prix_achat||0) + tr + man;
+        const cr = cu * (prod.quantite||0);
+        const marge = prod.prix_vente>0 ? Math.round((prod.prix_vente-cu)/prod.prix_vente*100) : 0;
+        const margeColor = marge>=30?'var(--success)':marge>=15?'var(--warning)':'var(--danger)';
+        const cuEl = document.getElementById(`cu-${pid}`);
+        const crEl = document.getElementById(`cr-${pid}`);
+        const mgEl = document.getElementById(`mg-${pid}`);
+        if(cuEl) cuEl.textContent = fmt(cu);
+        if(crEl) crEl.textContent = fmt(cr);
+        if(mgEl) { mgEl.textContent = marge+'%'; mgEl.style.color = margeColor; }
+        // Mettre à jour produitsData pour l'export
+        prod.transport    = champ === 'transport'    ? val : tr;
+        prod.manutention  = champ === 'manutention'  ? val : man;
+      }
+    } else if(row) {
+      // Mise à jour prix dans produitsData
+      const pid = row.dataset.id;
+      const prod = produitsData.find(p => p.id == pid);
+      if(prod) prod[champ] = val;
+    }
+    toast('Sauvegardé ✓');
+  } catch(e) {
+    input.style.borderColor = '#fca5a5'; // rouge = erreur
+  }
+}
+
 function exportCoutRevient(format){
   const m=currentMagasin();
   const rows=[
-    ['COÛT DE REVIENT — '+(m?.nom||''),'','','','','','',''],
-    ['Date : '+new Date().toLocaleDateString('fr-FR'),'','','','','','',''],
-    ['',''],
-    ['Produit','Catégorie','Unité','Px Achat','Coût unitaire','Stock','Coût revient total','PV1','Marge %'],
+    ['COÛT DE REVIENT — '+(m?.nom||''),'','','','','','','','',''],
+    ['Date : '+new Date().toLocaleDateString('fr-FR'),'','','','','','','','',''],
+    [''],
+    ['Produit','Catégorie','Unité','Px Achat','Transport','Manutention','Coût unitaire','Stock','Coût revient total','PV1','Marge %'],
     ...produitsData.map(p=>{
-      const cu=p.prix_achat||0, cr=cu*(p.quantite||0);
+      const tr=p.transport||0, man=p.manutention||0;
+      const cu=(p.prix_achat||0)+tr+man, cr=cu*(p.quantite||0);
       const marge=p.prix_vente>0?Math.round((p.prix_vente-cu)/p.prix_vente*100):0;
-      return [p.nom,p.categorie_nom||'',p.unite,p.prix_achat,cu,p.quantite,cr,p.prix_vente,marge+'%'];
+      return [p.nom,p.categorie_nom||'',p.unite,p.prix_achat,tr,man,cu,p.quantite,cr,p.prix_vente,marge+'%'];
     }),
-    ['',''],
-    ['TOTAL','','','','',
+    [''],
+    ['TOTAL','','','','','','',
       produitsData.reduce((s,p)=>s+(p.quantite||0),0),
-      produitsData.reduce((s,p)=>s+(p.prix_achat||0)*(p.quantite||0),0),
+      produitsData.reduce((s,p)=>{const tr=p.transport||0,man=p.manutention||0,cu=(p.prix_achat||0)+tr+man;return s+cu*(p.quantite||0);},0),
       produitsData.reduce((s,p)=>s+(p.prix_vente||0)*(p.quantite||0),0),''],
   ];
   exportData(rows,'cout_revient_'+new Date().toISOString().slice(0,10),format);
@@ -1467,13 +1556,28 @@ function exportCoutRevient(format){
 function calcPVAuto() {
   const pa = parseFloat(document.getElementById('pp_pa')?.value) || 0;
   if(!pa) return;
-  const r = v => Math.round(v / 100) * 100; // arrondi à 100 FCFA
+  const r = v => Math.round(v / 100) * 100;
   const pv1 = document.getElementById('pp_pv');
   const pv2 = document.getElementById('pp_pv2');
   const pv3 = document.getElementById('pp_pv3');
   if(pv1 && (!pv1.value || pv1.value=='0')) pv1.value = r(pa * 1.25);
   if(pv2) pv2.value = r(pa * 1.50);
   if(pv3) pv3.value = r(pa * 2.00);
+  calcCoutRevient();
+}
+
+function calcCoutRevient() {
+  const pa  = parseFloat(document.getElementById('pp_pa')?.value)  || 0;
+  const tr  = parseFloat(document.getElementById('pp_tr')?.value)  || 0;
+  const man = parseFloat(document.getElementById('pp_man')?.value) || 0;
+  const pv1 = parseFloat(document.getElementById('pp_pv')?.value)  || 0;
+  const cu  = pa + tr + man;
+  const marge = pv1 > 0 ? Math.round((pv1 - cu) / pv1 * 100) : 0;
+  const margeColor = marge >= 30 ? '#065f46' : marge >= 15 ? '#92400e' : '#991b1b';
+  const cuEl = document.getElementById('pp_cu_val');
+  const mgEl = document.getElementById('pp_mg_val');
+  if(cuEl) cuEl.textContent = fmt(cu) + ' FCFA';
+  if(mgEl) { mgEl.textContent = marge + '%'; mgEl.style.color = margeColor; }
 }
 
 async function modalProduit(id=null){
@@ -1501,8 +1605,16 @@ async function modalProduit(id=null){
         <div class="form-group"><label>🟡 PV2 — +50%</label><input type="number" id="pp_pv2" value="${p.prix_vente2||0}" min="0"></div>
         <div class="form-group"><label>🩷 PV3 — +100%</label><input type="number" id="pp_pv3" value="${p.prix_vente3||0}" min="0"></div>
       </div>
-      <div style="font-size:11px;color:var(--text-muted);margin:-8px 0 12px;padding:8px;background:#f0f9ff;border-radius:6px">
-        💡 Entrez le prix d'achat → les 3 niveaux de prix se calculent automatiquement. PV1 = tarif gros client. PV3 = tarif détail.
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px">
+        <div class="form-group"><label>🚚 Transport unitaire</label><input type="number" id="pp_tr" value="${p.transport||0}" min="0" oninput="calcCoutRevient()"></div>
+        <div class="form-group"><label>🔧 Manutention unitaire</label><input type="number" id="pp_man" value="${p.manutention||0}" min="0" oninput="calcCoutRevient()"></div>
+      </div>
+      <div id="pp_cout_preview" style="font-size:12px;padding:8px 12px;background:#f0fdf4;border-radius:6px;border:1px solid #bbf7d0;margin-bottom:10px">
+        <strong>Coût de revient unitaire :</strong> <span id="pp_cu_val">—</span>
+        &nbsp;·&nbsp; <strong>Marge PV1 :</strong> <span id="pp_mg_val">—</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;padding:8px;background:#f0f9ff;border-radius:6px">
+        💡 Coût de revient = Prix achat + Transport + Manutention. PV1/PV2/PV3 se calculent auto depuis le prix d'achat.
       </div>
       <div class="form-row-3">
         <div class="form-group"><label>Unité</label><input id="pp_u" value="${p.unite||'pcs'}"></div>
@@ -1520,16 +1632,23 @@ async function modalProduit(id=null){
   </div>`);
 }
 async function saveProduit(id){
-  const payload={code:document.getElementById('pp_code').value||null,nom:document.getElementById('pp_nom').value,
-    description:document.getElementById('pp_desc').value,categorie_id:parseInt(document.getElementById('pp_cat').value)||null,
+  const payload={
+    code:document.getElementById('pp_code').value||null,
+    nom:document.getElementById('pp_nom').value,
+    description:document.getElementById('pp_desc').value,
+    categorie_id:parseInt(document.getElementById('pp_cat').value)||null,
     fournisseur_id:parseInt(document.getElementById('pp_fourn').value)||null,
     prix_achat:parseFloat(document.getElementById('pp_pa').value)||0,
     prix_vente:parseFloat(document.getElementById('pp_pv').value)||0,
     prix_vente2:parseFloat(document.getElementById('pp_pv2').value)||0,
     prix_vente3:parseFloat(document.getElementById('pp_pv3').value)||0,
+    transport:parseFloat(document.getElementById('pp_tr')?.value)||0,
+    manutention:parseFloat(document.getElementById('pp_man')?.value)||0,
     quantite:parseInt(document.getElementById('pp_q')?.value)||0,
     quantite_min:parseInt(document.getElementById('pp_qm').value)||5,
-    unite:document.getElementById('pp_u').value||'pcs',magasin_id:currentMagasinId};
+    unite:document.getElementById('pp_u').value||'pcs',
+    magasin_id:currentMagasinId
+  };
   if(!payload.nom||!payload.prix_vente){toast('Nom et prix requis !','danger');return;}
   await api(id?`/produits/${id}`:'/produits',{method:id?'PUT':'POST',body:payload});
   toast(id?'Produit mis à jour':'Produit créé'); closeModal(); renderProduits();

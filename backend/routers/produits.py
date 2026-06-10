@@ -16,10 +16,21 @@ class ProduitIn(BaseModel):
     prix_vente: float          # PV1 (+25%)
     prix_vente2: float = 0     # PV2 (+50%)
     prix_vente3: float = 0     # PV3 (+100%)
+    transport: float = 0       # Frais de transport unitaire
+    manutention: float = 0     # Frais de manutention unitaire
     quantite: int = 0
     quantite_min: int = 5
     unite: str = "pcs"
     magasin_id: int
+
+
+class PrixRapideIn(BaseModel):
+    prix_achat: Optional[float] = None
+    prix_vente: Optional[float] = None
+    prix_vente2: Optional[float] = None
+    prix_vente3: Optional[float] = None
+    transport: Optional[float] = None
+    manutention: Optional[float] = None
 
 
 @router.get("")
@@ -70,12 +81,11 @@ def get_produit(pid: int):
 def create_produit(p: ProduitIn):
     db = get_db()
     try:
-        # Calculer PV2 et PV3 auto si non fournis
         pv2 = p.prix_vente2 or round(p.prix_achat * 1.5 / 100) * 100
         pv3 = p.prix_vente3 or round(p.prix_achat * 2.0 / 100) * 100
         cur = db.execute(
-            "INSERT INTO produits (code,nom,description,categorie_id,fournisseur_id,prix_achat,prix_vente,prix_vente2,prix_vente3,quantite,quantite_min,unite,magasin_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (p.code, p.nom, p.description, p.categorie_id, p.fournisseur_id, p.prix_achat, p.prix_vente, pv2, pv3, p.quantite, p.quantite_min, p.unite, p.magasin_id)
+            "INSERT INTO produits (code,nom,description,categorie_id,fournisseur_id,prix_achat,prix_vente,prix_vente2,prix_vente3,transport,manutention,quantite,quantite_min,unite,magasin_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (p.code, p.nom, p.description, p.categorie_id, p.fournisseur_id, p.prix_achat, p.prix_vente, pv2, pv3, p.transport, p.manutention, p.quantite, p.quantite_min, p.unite, p.magasin_id)
         )
         pid = cur.lastrowid
         if p.quantite > 0:
@@ -99,11 +109,34 @@ def update_produit(pid: int, p: ProduitIn):
         pv2 = p.prix_vente2 or round(p.prix_achat * 1.5 / 100) * 100
         pv3 = p.prix_vente3 or round(p.prix_achat * 2.0 / 100) * 100
         db.execute(
-            "UPDATE produits SET code=?,nom=?,description=?,categorie_id=?,fournisseur_id=?,prix_achat=?,prix_vente=?,prix_vente2=?,prix_vente3=?,quantite_min=?,unite=?,updated_at=datetime('now') WHERE id=?",
-            (p.code, p.nom, p.description, p.categorie_id, p.fournisseur_id, p.prix_achat, p.prix_vente, pv2, pv3, p.quantite_min, p.unite, pid)
+            "UPDATE produits SET code=?,nom=?,description=?,categorie_id=?,fournisseur_id=?,prix_achat=?,prix_vente=?,prix_vente2=?,prix_vente3=?,transport=?,manutention=?,quantite_min=?,unite=?,updated_at=datetime('now') WHERE id=?",
+            (p.code, p.nom, p.description, p.categorie_id, p.fournisseur_id, p.prix_achat, p.prix_vente, pv2, pv3, p.transport, p.manutention, p.quantite_min, p.unite, pid)
         )
         db.commit()
         return {"message": "Produit mis à jour"}
+    finally:
+        db.close()
+
+
+@router.patch("/{pid}/prix")
+def update_prix_rapide(pid: int, body: PrixRapideIn):
+    """Mise à jour rapide des prix/coûts depuis les tableaux inline."""
+    db = get_db()
+    try:
+        sets, vals = [], []
+        if body.prix_achat  is not None: sets.append("prix_achat=?");  vals.append(body.prix_achat)
+        if body.prix_vente  is not None: sets.append("prix_vente=?");  vals.append(body.prix_vente)
+        if body.prix_vente2 is not None: sets.append("prix_vente2=?"); vals.append(body.prix_vente2)
+        if body.prix_vente3 is not None: sets.append("prix_vente3=?"); vals.append(body.prix_vente3)
+        if body.transport   is not None: sets.append("transport=?");   vals.append(body.transport)
+        if body.manutention is not None: sets.append("manutention=?"); vals.append(body.manutention)
+        if not sets:
+            return {"message": "Rien à mettre à jour"}
+        sets.append("updated_at=datetime('now')")
+        vals.append(pid)
+        db.execute(f"UPDATE produits SET {','.join(sets)} WHERE id=?", vals)
+        db.commit()
+        return {"message": "Prix mis à jour"}
     finally:
         db.close()
 
