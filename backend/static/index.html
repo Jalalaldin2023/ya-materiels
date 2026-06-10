@@ -24,20 +24,59 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text)}
 
-/* ── LOGIN ── */
-#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--sidebar-bg) 0%,#0f172a 100%)}
-.login-box{background:#fff;border-radius:16px;padding:40px 36px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
-.login-logo{text-align:center;margin-bottom:28px}
-.login-logo .brand-icon{font-size:52px;margin-bottom:8px}
-.login-logo h1{font-size:22px;font-weight:800}
-.login-logo p{font-size:13px;color:var(--text-muted);margin-top:4px}
+/* ── LOGIN LANDING PAGE ── */
+#login-screen{min-height:100vh;display:flex;flex-direction:row;overflow:hidden}
+/* ─ Panneau image (gauche) ─ */
+#ls-slideshow{flex:1;position:relative;overflow:hidden;min-height:260px}
+.ls-slide{position:absolute;inset:0;transition:opacity .9s ease;opacity:0;pointer-events:none}
+.ls-slide.active{opacity:1;pointer-events:auto}
+.ls-slide-bg{position:absolute;inset:0;background-size:cover;background-position:center;transform:scale(1.04);transition:transform 8s ease}
+.ls-slide.active .ls-slide-bg{transform:scale(1)}
+.ls-slide-overlay{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.78) 0%,rgba(0,0,0,.25) 55%,rgba(0,0,0,.12) 100%)}
+.ls-slide-content{position:absolute;bottom:0;left:0;right:0;padding:36px 40px;color:#fff}
+.ls-store-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.15);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.25);border-radius:99px;padding:6px 14px;font-size:12px;font-weight:600;letter-spacing:.04em;margin-bottom:14px}
+.ls-slide-content h2{font-size:clamp(24px,4vw,36px);font-weight:800;letter-spacing:-.02em;line-height:1.15;margin-bottom:8px;text-shadow:0 2px 12px rgba(0,0,0,.4)}
+.ls-slide-content p{font-size:14px;opacity:.85;margin-bottom:6px}
+.ls-slide-content .ls-addr{font-size:12px;opacity:.65;display:flex;align-items:center;gap:5px}
+.ls-dots{display:flex;gap:8px;margin-top:20px}
+.ls-dot{width:28px;height:3px;border-radius:99px;background:rgba(255,255,255,.35);cursor:pointer;transition:all .3s}
+.ls-dot.active{background:#fff;width:44px}
+/* Navigation flèches */
+.ls-nav-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.25);color:#fff;width:44px;height:44px;border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;transition:background .2s;z-index:10}
+.ls-nav-btn:hover{background:rgba(255,255,255,.3)}
+#ls-prev{left:16px} #ls-next{right:16px}
+/* Tag "magasin N/N" en haut */
+.ls-counter{position:absolute;top:20px;right:20px;background:rgba(0,0,0,.4);backdrop-filter:blur(8px);color:#fff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:99px;z-index:5;letter-spacing:.06em}
+/* ─ Panneau formulaire (droite) ─ */
+#ls-form-panel{width:420px;min-width:320px;background:#fff;display:flex;flex-direction:column;justify-content:center;padding:48px 40px;position:relative;z-index:2;box-shadow:-8px 0 40px rgba(0,0,0,.12)}
+.login-logo{text-align:center;margin-bottom:32px}
+.login-logo img{width:72px;height:72px;object-fit:contain;border-radius:14px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;box-shadow:0 4px 16px rgba(0,0,0,.12)}
+.login-logo h1{font-size:20px;font-weight:800;color:#111827}
+.login-logo p{font-size:12px;color:var(--text-muted);margin-top:3px}
 .login-box .form-group{margin-bottom:14px}
-.login-box label{display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:5px}
-.login-box input{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none}
-.login-box input:focus{border-color:var(--primary)}
-.login-btn{width:100%;padding:12px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:6px}
-.login-btn:hover{filter:brightness(1.08)}
+.login-box label{display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
+.login-box input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s}
+.login-box input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(26,86,219,.12)}
+.login-btn{width:100%;padding:13px;background:var(--primary);color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;transition:filter .15s,transform .1s;letter-spacing:.02em}
+.login-btn:hover{filter:brightness(1.08)} .login-btn:active{transform:scale(.98)}
 #login-error{color:var(--danger);font-size:13px;text-align:center;margin-top:10px;display:none}
+/* ─ Miniatures magasins en bas du panel ─ */
+.ls-store-thumbs{display:flex;gap:10px;margin-top:28px;padding-top:20px;border-top:1px solid var(--border)}
+.ls-thumb{flex:1;border-radius:10px;overflow:hidden;cursor:pointer;border:2px solid transparent;transition:all .25s;position:relative}
+.ls-thumb.active{border-color:var(--primary)}
+.ls-thumb-img{height:56px;background-size:cover;background-position:center;position:relative}
+.ls-thumb-img::after{content:'';position:absolute;inset:0;background:rgba(0,0,0,.3)}
+.ls-thumb-name{font-size:10px;font-weight:700;padding:5px 7px;background:#f9fafb;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-thumb.active .ls-thumb-name{background:#eff6ff;color:var(--primary)}
+/* ─ Responsive mobile ─ */
+@media(max-width:780px){
+  #login-screen{flex-direction:column}
+  #ls-slideshow{height:240px;flex:none}
+  #ls-form-panel{width:100%;padding:32px 24px}
+  .login-logo img{width:56px;height:56px}
+  .ls-slide-content{padding:20px 20px}
+  .ls-slide-content h2{font-size:22px}
+}
 .hint-box{margin-top:16px;padding:12px;background:#f9fafb;border-radius:8px;font-size:12px;color:var(--text-muted)}
 
 /* ── APP ── */
@@ -199,23 +238,38 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
 
 <!-- ══ CONNEXION ══ -->
 <div id="login-screen">
-  <div class="login-box">
-    <div class="login-logo">
-      <img src="https://i.ibb.co/2VNbZVP/1780540993096.png" alt="Ya Matériels" style="width:100px;height:100px;object-fit:contain;border-radius:16px;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto">
-      <h1 id="login-titre">Ya Matériels</h1>
-      <p>Système de gestion multi-magasins</p>
-    </div>
-    <div class="form-group">
-      <label>Identifiant</label>
-      <input type="text" id="l-username" placeholder="admin" autocomplete="username">
-    </div>
-    <div class="form-group">
-      <label>Mot de passe</label>
-      <input type="password" id="l-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
-    </div>
-    <button class="login-btn" onclick="doLogin()">Se connecter</button>
-    <div id="login-error"></div>
+
+  <!-- ─ Panneau Slideshow (gauche) ─ -->
+  <div id="ls-slideshow">
+    <div id="ls-slides-wrap"></div><!-- injecté par JS -->
+    <button class="ls-nav-btn" id="ls-prev" onclick="lsGo(-1)">‹</button>
+    <button class="ls-nav-btn" id="ls-next" onclick="lsGo(1)">›</button>
+    <div class="ls-counter" id="ls-counter">1 / 2</div>
   </div>
+
+  <!-- ─ Panneau Formulaire (droite) ─ -->
+  <div id="ls-form-panel">
+    <div class="login-box">
+      <div class="login-logo">
+        <img id="ls-logo-img" src="https://i.ibb.co/2VNbZVP/1780540993096.png" alt="Ya Matériels">
+        <h1 id="login-titre">Ya Matériels</h1>
+        <p>Système de gestion multi-magasins</p>
+      </div>
+      <div class="form-group">
+        <label>Identifiant</label>
+        <input type="text" id="l-username" placeholder="admin" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Mot de passe</label>
+        <input type="password" id="l-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button class="login-btn" onclick="doLogin()">🔐 Se connecter</button>
+      <div id="login-error"></div>
+      <!-- Miniatures des magasins -->
+      <div class="ls-store-thumbs" id="ls-thumbs"></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ══ APP ══ -->
@@ -377,6 +431,123 @@ function restricted() {
 
 function noStore() {
   document.getElementById('content').innerHTML=`<div class="restricted"><div class="big-icon">🏪</div><h3>Sélectionnez un magasin</h3><p>Choisissez un magasin dans le menu latéral pour continuer.</p></div>`;
+}
+
+// ── Landing page slideshow ────────────────────────────────────────────────────
+let _lsMagasins = [];
+let _lsCurrent  = 0;
+let _lsTimer    = null;
+
+// Dégradés par défaut si pas de photo configurée
+const LS_GRADIENTS = [
+  'linear-gradient(135deg,#1e3a5f 0%,#0f2027 100%)',
+  'linear-gradient(135deg,#7c3800 0%,#1a0900 100%)',
+  'linear-gradient(135deg,#1a3a2f 0%,#0a1a14 100%)',
+  'linear-gradient(135deg,#2d1b5e 0%,#0d0720 100%)',
+];
+
+async function initLandingPage() {
+  try {
+    _lsMagasins = await api('/auth/magasins');
+  } catch(e) {
+    _lsMagasins = [
+      {id:1, nom:'Ya Matériels Divo',        slogan:'Votre quincaillerie de confiance', adresse:'Divo, Côte d\'Ivoire',         photo:'', logo:''},
+      {id:2, nom:'Ya Matériels Yamoussoukro', slogan:'Votre quincaillerie de confiance', adresse:'Yamoussoukro, Côte d\'Ivoire', photo:'', logo:''},
+    ];
+  }
+  buildSlides();
+  buildThumbs();
+  lsShow(0);
+  startLsTimer();
+}
+
+function buildSlides() {
+  const wrap = document.getElementById('ls-slides-wrap');
+  if(!wrap) return;
+  wrap.innerHTML = _lsMagasins.map((m, i) => {
+    const bg = m.photo && m.photo.startsWith('http')
+      ? `url('${m.photo}') center/cover no-repeat`
+      : LS_GRADIENTS[i % LS_GRADIENTS.length];
+    return `
+    <div class="ls-slide" id="ls-slide-${i}">
+      <div class="ls-slide-bg" style="background:${bg}"></div>
+      <div class="ls-slide-overlay"></div>
+      <div class="ls-slide-content">
+        <div class="ls-store-badge">
+          ${m.logo && m.logo.startsWith('http')
+            ? `<img src="${m.logo}" style="width:18px;height:18px;object-fit:contain;border-radius:3px">`
+            : '🏪'}
+          Magasin ${i + 1} sur ${_lsMagasins.length}
+        </div>
+        <h2>${m.nom}</h2>
+        ${m.slogan ? `<p>${m.slogan}</p>` : ''}
+        ${m.adresse ? `<div class="ls-addr">📍 ${m.adresse}</div>` : ''}
+        ${m.telephone ? `<div class="ls-addr">📞 ${m.telephone}</div>` : ''}
+        <div class="ls-dots" id="ls-dots-${i}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Injecter les dots dans chaque slide
+  _lsMagasins.forEach((_, si) => {
+    const dotsEl = document.getElementById(`ls-dots-${si}`);
+    if(!dotsEl) return;
+    dotsEl.innerHTML = _lsMagasins.map((__, di) =>
+      `<div class="ls-dot ${di===si?'active':''}" onclick="lsGo(${di - si},event)"></div>`
+    ).join('');
+  });
+}
+
+function buildThumbs() {
+  const thumbsEl = document.getElementById('ls-thumbs');
+  if(!thumbsEl || _lsMagasins.length === 0) return;
+  thumbsEl.innerHTML = _lsMagasins.map((m, i) => {
+    const bg = m.photo && m.photo.startsWith('http')
+      ? `url('${m.photo}') center/cover no-repeat`
+      : LS_GRADIENTS[i % LS_GRADIENTS.length];
+    const shortName = m.nom.replace('Ya Matériels ', '');
+    return `
+    <div class="ls-thumb ${i===0?'active':''}" id="ls-thumb-${i}" onclick="lsGoTo(${i})">
+      <div class="ls-thumb-img" style="background:${bg}"></div>
+      <div class="ls-thumb-name">📍 ${shortName}</div>
+    </div>`;
+  }).join('');
+}
+
+function lsShow(idx) {
+  const n = _lsMagasins.length;
+  if(n === 0) return;
+  _lsCurrent = ((idx % n) + n) % n;
+
+  document.querySelectorAll('.ls-slide').forEach((el, i) => {
+    el.classList.toggle('active', i === _lsCurrent);
+  });
+  document.querySelectorAll('.ls-thumb').forEach((el, i) => {
+    el.classList.toggle('active', i === _lsCurrent);
+  });
+  const counter = document.getElementById('ls-counter');
+  if(counter) counter.textContent = `${_lsCurrent + 1} / ${n}`;
+}
+
+function lsGo(delta, e) {
+  if(e) e.stopPropagation();
+  clearLsTimer();
+  lsShow(_lsCurrent + delta);
+  startLsTimer();
+}
+
+function lsGoTo(idx) {
+  clearLsTimer();
+  lsShow(idx);
+  startLsTimer();
+}
+
+function startLsTimer() {
+  _lsTimer = setInterval(() => lsShow(_lsCurrent + 1), 5000);
+}
+
+function clearLsTimer() {
+  if(_lsTimer) { clearInterval(_lsTimer); _lsTimer = null; }
 }
 
 // ── Authentification ──────────────────────────────────────────────────────────
@@ -2765,7 +2936,14 @@ async function pageMagasins(){
                   <label>URL du logo <span style="font-size:11px;color:var(--text-muted)">(lien image JPG/PNG)</span></label>
                   <input id="pm_logo" placeholder="https://..." oninput="previewLogo(this.value)">
                 </div>
-                <div style="font-size:11px;color:var(--text-muted)">Astuce : uploadez votre logo sur <a href="https://imgbb.com" target="_blank">imgbb.com</a> et collez le lien direct ici.</div>
+                <div class="form-group" style="margin-bottom:10px">
+                  <label>📸 Photo du magasin <span style="font-size:11px;color:var(--text-muted)">(affichée sur la page d'accueil)</span></label>
+                  <input id="pm_photo" placeholder="https://..." oninput="previewStorePhoto(this.value)">
+                  <div id="pm_photo_preview" style="margin-top:8px;border-radius:10px;overflow:hidden;height:90px;background:#f3f4f6;display:none">
+                    <img id="pm_photo_img" src="" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.style.display='none'">
+                  </div>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted)">Astuce : uploadez vos photos sur <a href="https://imgbb.com" target="_blank">imgbb.com</a> et collez le lien direct ici.</div>
               </div>
             </div>
             <div class="form-row">
@@ -2914,7 +3092,8 @@ function loadParamStore(m) {
   setVal('pm_nom', m.nom); setVal('pm_slogan', m.slogan);
   setVal('pm_tel', m.telephone); setVal('pm_email', m.email);
   setVal('pm_adresse', m.adresse); setVal('pm_rccm', m.rccm);
-  setVal('pm_nif', m.nif); setVal('pm_logo', m.logo);
+  setVal('pm_nif', m.nif); setVal('pm_logo', m.logo); setVal('pm_photo', m.photo||'');
+  previewStorePhoto(m.photo||'');
   setVal('pm_pied', m.recu_pied || 'Merci pour votre achat !');
   const dev = document.getElementById('pm_devise');
   if(dev) dev.value = m.devise || 'FCFA';
@@ -2934,6 +3113,18 @@ function loadParamStore(m) {
   liveColor('primary', pc); liveColor('sidebar', sc);
   previewLogo(m.logo || '');
   livePreviewRecu();
+}
+
+function previewStorePhoto(url) {
+  const box = document.getElementById('pm_photo_preview');
+  const img = document.getElementById('pm_photo_img');
+  if(!box || !img) return;
+  if(url && url.startsWith('http')) {
+    img.src = url;
+    box.style.display = 'block';
+  } else {
+    box.style.display = 'none';
+  }
 }
 
 function previewLogo(url) {
@@ -3021,6 +3212,7 @@ async function saveParamMagasin(){
     rccm:          document.getElementById('pm_rccm')?.value || '',
     nif:           document.getElementById('pm_nif')?.value || '',
     logo:          document.getElementById('pm_logo')?.value || '',
+    photo:         document.getElementById('pm_photo')?.value || '',
     devise:        document.getElementById('pm_devise')?.value || 'FCFA',
     theme_primary: document.getElementById('pm_primary')?.value || '#1a56db',
     theme_sidebar: document.getElementById('pm_sidebar')?.value || '#1e293b',
@@ -3897,6 +4089,8 @@ function processChat(text) {
     setTimeout(()=>{ cbAddMsg(fallback,'bot'); renderChips(quickChips); }, 350);
   }
 }
+// ── Init au chargement ────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => initLandingPage());
 </script>
 
 </body>

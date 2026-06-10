@@ -1,7 +1,8 @@
 import hashlib
+import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from database import get_db, hash_pwd
 
 router = APIRouter()
@@ -19,6 +20,7 @@ class UserIn(BaseModel):
     role: str = "caissier"
     magasin_id: Optional[int] = None
     actif: int = 1
+    permissions: Optional[List[str]] = None  # liste des modules autorisés
 
 
 class MagasinIn(BaseModel):
@@ -30,6 +32,7 @@ class MagasinIn(BaseModel):
     rccm: Optional[str] = ""
     nif: Optional[str] = ""
     logo: Optional[str] = ""
+    photo: Optional[str] = ""
     devise: Optional[str] = "FCFA"
     theme_primary: Optional[str] = "#1a56db"
     theme_sidebar: Optional[str] = "#1e293b"
@@ -47,12 +50,20 @@ def login(data: LoginIn):
     db.close()
     if not user or user["password"] != hash_pwd(data.password):
         raise HTTPException(401, "Identifiant ou mot de passe incorrect")
+    perms = []
+    try:
+        raw = user["permissions"] or ""
+        if raw:
+            perms = json.loads(raw)
+    except Exception:
+        perms = []
     return {
         "id": user["id"],
         "nom": user["nom"],
         "username": user["username"],
         "role": user["role"],
-        "magasin_id": user["magasin_id"],  # None = admin, voit tout
+        "magasin_id": user["magasin_id"],
+        "permissions": perms,
     }
 
 
@@ -81,11 +92,10 @@ def create_magasin(m: MagasinIn):
     db = get_db()
     try:
         cur = db.execute(
-            "INSERT INTO magasins (nom,slogan,adresse,telephone,email,rccm,nif,logo,devise,theme_primary,theme_sidebar,recu_pied) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (m.nom, m.slogan, m.adresse, m.telephone, m.email, m.rccm, m.nif, m.logo, m.devise, m.theme_primary, m.theme_sidebar, m.recu_pied)
+            "INSERT INTO magasins (nom,slogan,adresse,telephone,email,rccm,nif,logo,photo,devise,theme_primary,theme_sidebar,recu_pied) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (m.nom, m.slogan, m.adresse, m.telephone, m.email, m.rccm, m.nif, m.logo, m.photo, m.devise, m.theme_primary, m.theme_sidebar, m.recu_pied)
         )
         mid = cur.lastrowid
-        # Catégories par défaut
         cats = ["Outils","Visserie","Plomberie","Électricité","Peinture","Bois","Quincaillerie","Autre"]
         db.executemany("INSERT INTO categories (nom,magasin_id) VALUES (?,?)", [(c,mid) for c in cats])
         db.commit()
@@ -99,8 +109,8 @@ def update_magasin(mid: int, m: MagasinIn):
     db = get_db()
     try:
         db.execute(
-            "UPDATE magasins SET nom=?,slogan=?,adresse=?,telephone=?,email=?,rccm=?,nif=?,logo=?,devise=?,theme_primary=?,theme_sidebar=?,recu_pied=? WHERE id=?",
-            (m.nom, m.slogan, m.adresse, m.telephone, m.email, m.rccm, m.nif, m.logo, m.devise, m.theme_primary, m.theme_sidebar, m.recu_pied, mid)
+            "UPDATE magasins SET nom=?,slogan=?,adresse=?,telephone=?,email=?,rccm=?,nif=?,logo=?,photo=?,devise=?,theme_primary=?,theme_sidebar=?,recu_pied=? WHERE id=?",
+            (m.nom, m.slogan, m.adresse, m.telephone, m.email, m.rccm, m.nif, m.logo, m.photo, m.devise, m.theme_primary, m.theme_sidebar, m.recu_pied, mid)
         )
         db.commit()
         return {"message": "Magasin mis à jour"}
@@ -114,10 +124,18 @@ def update_magasin(mid: int, m: MagasinIn):
 def list_users():
     db = get_db()
     rows = db.execute(
-        "SELECT u.id, u.nom, u.username, u.role, u.magasin_id, u.actif, u.created_at, m.nom as magasin_nom FROM utilisateurs u LEFT JOIN magasins m ON u.magasin_id=m.id ORDER BY u.nom"
+        "SELECT u.id, u.nom, u.username, u.role, u.magasin_id, u.actif, u.permissions, u.created_at, m.nom as magasin_nom FROM utilisateurs u LEFT JOIN magasins m ON u.magasin_id=m.id ORDER BY u.nom"
     ).fetchall()
     db.close()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d['permissions'] = json.loads(d['permissions'] or '[]')
+        except Exception:
+            d['permissions'] = []
+        result.append(d)
+    return result
 
 
 @router.post("/utilisateurs")
@@ -125,9 +143,10 @@ def create_user(u: UserIn):
     db = get_db()
     try:
         pwd = hash_pwd(u.password or "password123")
+        perms_json = json.dumps(u.permissions or [])
         cur = db.execute(
-            "INSERT INTO utilisateurs (nom, username, password, role, magasin_id, actif) VALUES (?,?,?,?,?,?)",
-            (u.nom, u.username, pwd, u.role, u.magasin_id, u.actif)
+            "INSERT INTO utilisateurs (nom, username, password, role, magasin_id, actif, permissions) VALUES (?,?,?,?,?,?,?)",
+            (u.nom, u.username, pwd, u.role, u.magasin_id, u.actif, perms_json)
         )
         db.commit()
         return {"id": cur.lastrowid, "message": "Utilisateur créé"}
@@ -142,15 +161,16 @@ def create_user(u: UserIn):
 def update_user(uid: int, u: UserIn):
     db = get_db()
     try:
+        perms_json = json.dumps(u.permissions or [])
         if u.password:
             db.execute(
-                "UPDATE utilisateurs SET nom=?,username=?,password=?,role=?,magasin_id=?,actif=? WHERE id=?",
-                (u.nom, u.username, hash_pwd(u.password), u.role, u.magasin_id, u.actif, uid)
+                "UPDATE utilisateurs SET nom=?,username=?,password=?,role=?,magasin_id=?,actif=?,permissions=? WHERE id=?",
+                (u.nom, u.username, hash_pwd(u.password), u.role, u.magasin_id, u.actif, perms_json, uid)
             )
         else:
             db.execute(
-                "UPDATE utilisateurs SET nom=?,username=?,role=?,magasin_id=?,actif=? WHERE id=?",
-                (u.nom, u.username, u.role, u.magasin_id, u.actif, uid)
+                "UPDATE utilisateurs SET nom=?,username=?,role=?,magasin_id=?,actif=?,permissions=? WHERE id=?",
+                (u.nom, u.username, u.role, u.magasin_id, u.actif, perms_json, uid)
             )
         db.commit()
         return {"message": "Utilisateur mis à jour"}

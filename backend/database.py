@@ -169,10 +169,12 @@ def init_db():
 
     # ── Migrations : nouvelles colonnes sur table existante ─────────────────
     migrations = [
-        ("produits", "prix_vente2",  "ALTER TABLE produits ADD COLUMN prix_vente2 REAL DEFAULT 0"),
-        ("produits", "prix_vente3",  "ALTER TABLE produits ADD COLUMN prix_vente3 REAL DEFAULT 0"),
-        ("produits", "transport",    "ALTER TABLE produits ADD COLUMN transport REAL DEFAULT 0"),
-        ("produits", "manutention",  "ALTER TABLE produits ADD COLUMN manutention REAL DEFAULT 0"),
+        ("produits",     "prix_vente2",  "ALTER TABLE produits ADD COLUMN prix_vente2 REAL DEFAULT 0"),
+        ("produits",     "prix_vente3",  "ALTER TABLE produits ADD COLUMN prix_vente3 REAL DEFAULT 0"),
+        ("produits",     "transport",    "ALTER TABLE produits ADD COLUMN transport REAL DEFAULT 0"),
+        ("produits",     "manutention",  "ALTER TABLE produits ADD COLUMN manutention REAL DEFAULT 0"),
+        ("utilisateurs", "permissions",  "ALTER TABLE utilisateurs ADD COLUMN permissions TEXT DEFAULT ''"),
+        ("magasins",     "photo",        "ALTER TABLE magasins ADD COLUMN photo TEXT DEFAULT ''"),
     ]
     for table, col, sql in migrations:
         cols = [r[1] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()]
