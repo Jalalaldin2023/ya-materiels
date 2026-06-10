@@ -26,10 +26,14 @@ app.include_router(stock.router, prefix="/api/stock", tags=["Stock"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 
-# Serve frontend
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
-if os.path.exists(frontend_path):
-    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+# Serve frontend — cherche d'abord static/ (Render), puis ../frontend/ (dev local)
+for _fp in [
+    os.path.join(os.path.dirname(__file__), "static"),
+    os.path.join(os.path.dirname(__file__), "..", "frontend"),
+]:
+    if os.path.exists(_fp):
+        app.mount("/", StaticFiles(directory=_fp, html=True), name="frontend")
+        break
 
 
 @app.on_event("startup")
