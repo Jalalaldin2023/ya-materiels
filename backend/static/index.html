@@ -238,23 +238,23 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
 
     <nav class="sb-nav" id="sidebar-nav">
       <a onclick="showPage('dashboard')" data-page="dashboard"><span class="icon">📊</span> Tableau de bord</a>
-      <a onclick="showPage('pos')" data-page="pos" class="need-store nav-pos"><span class="icon">🛒</span> Point de vente</a>
-      <a onclick="showPage('ventes')" data-page="ventes" class="need-store"><span class="icon">📋</span> Ventes</a>
-      <div class="nav-sep nav-gestionnaire">STOCK</div>
-      <a onclick="showPage('produits')" data-page="produits" class="nav-gestionnaire need-store"><span class="icon">📦</span> Produits</a>
-      <a onclick="showPage('stock')" data-page="stock" class="nav-gestionnaire need-store"><span class="icon">🏪</span> Stock</a>
-      <a onclick="showPage('achats')" data-page="achats" class="nav-gestionnaire need-store"><span class="icon">🚚</span> Achats</a>
+      <a onclick="showPage('pos')" data-page="pos" data-perm="pos" class="need-store"><span class="icon">🛒</span> Point de vente</a>
+      <a onclick="showPage('ventes')" data-page="ventes" data-perm="ventes" class="need-store"><span class="icon">📋</span> Ventes</a>
+      <div class="nav-sep nav-stock-sep">STOCK</div>
+      <a onclick="showPage('produits')" data-page="produits" data-perm="produits" class="need-store"><span class="icon">📦</span> Produits</a>
+      <a onclick="showPage('stock')" data-page="stock" data-perm="stock" class="need-store"><span class="icon">🏪</span> Stock</a>
+      <a onclick="showPage('achats')" data-page="achats" data-perm="achats" class="need-store"><span class="icon">🚚</span> Achats</a>
       <div class="nav-sep">CLIENTS</div>
-      <a onclick="showPage('clients')" data-page="clients" class="need-store"><span class="icon">👥</span> Clients</a>
-      <a onclick="showPage('fournisseurs')" data-page="fournisseurs" class="nav-gestionnaire need-store"><span class="icon">🏭</span> Fournisseurs</a>
-      <div class="nav-sep nav-finances">FINANCES</div>
-      <a onclick="showPage('depenses')" data-page="depenses" class="nav-finances need-store"><span class="icon">💸</span> Dépenses</a>
-      <a onclick="showPage('comptabilite')" data-page="comptabilite" class="nav-finances need-store"><span class="icon">📈</span> Comptabilité</a>
-      <div class="nav-sep nav-analyse">ANALYSE & DÉCISION</div>
-      <a onclick="showPage('analyse')" data-page="analyse" class="nav-analyse need-store"><span class="icon">🔬</span> Analyse & Aide décision</a>
+      <a onclick="showPage('clients')" data-page="clients" data-perm="clients" class="need-store"><span class="icon">👥</span> Clients</a>
+      <a onclick="showPage('fournisseurs')" data-page="fournisseurs" data-perm="fournisseurs" class="need-store"><span class="icon">🏭</span> Fournisseurs</a>
+      <div class="nav-sep nav-finances-sep">FINANCES</div>
+      <a onclick="showPage('depenses')" data-page="depenses" data-perm="depenses" class="need-store"><span class="icon">💸</span> Dépenses</a>
+      <a onclick="showPage('comptabilite')" data-page="comptabilite" data-perm="comptabilite" class="need-store"><span class="icon">📈</span> Comptabilité</a>
+      <div class="nav-sep nav-analyse-sep">ANALYSE & DÉCISION</div>
+      <a onclick="showPage('analyse')" data-page="analyse" data-perm="analyse" class="need-store"><span class="icon">🔬</span> Analyse & Aide décision</a>
       <div class="nav-sep nav-admin">ADMINISTRATION</div>
-      <a onclick="showPage('magasins')" data-page="magasins" class="nav-admin"><span class="icon">⚙️</span> Paramètres magasins</a>
-      <a onclick="showPage('utilisateurs')" data-page="utilisateurs" class="nav-admin"><span class="icon">👤</span> Utilisateurs</a>
+      <a onclick="showPage('magasins')" data-page="magasins" data-perm="magasins" class="nav-admin"><span class="icon">⚙️</span> Paramètres magasins</a>
+      <a onclick="showPage('utilisateurs')" data-page="utilisateurs" data-perm="utilisateurs" class="nav-admin"><span class="icon">👤</span> Utilisateurs</a>
     </nav>
 
     <div class="sb-user">
@@ -304,17 +304,36 @@ const fmtDT = s => s ? new Date(s).toLocaleString('fr-FR') : '-';
 const fmtD = s => s ? new Date(s).toLocaleDateString('fr-FR') : '-';
 
 function currentMagasin() { return allMagasins.find(m => m.id === currentMagasinId) || null; }
+// ── Permissions par rôle (défauts) ───────────────────────────────────────────
+const ROLE_PERMS_DEFAULT = {
+  admin:           ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs'],
+  dg:              ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture'],
+  gerant:          ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture'],
+  gestionnaire:    ['pos','ventes','produits','stock','achats','clients','fournisseurs'],
+  resp_commercial: ['pos','ventes','clients','facture','analyse'],
+  comptable:       ['ventes','clients','depenses','comptabilite','analyse'],
+  caissier:        ['pos','ventes','clients','facture'],
+  commercial:      ['pos','ventes','clients'],
+};
+
+function hasPerm(key) {
+  // Si des permissions personnalisées sont définies, les utiliser
+  const perms = currentUser?.permissions;
+  if(perms && perms.length > 0) return perms.includes(key);
+  // Sinon fallback sur le rôle
+  const role = currentUser?.role;
+  return (ROLE_PERMS_DEFAULT[role] || []).includes(key);
+}
+
 function isAdmin()        { return currentUser?.role === 'admin'; }
 function isDG()           { return ['admin','dg'].includes(currentUser?.role); }
 function isGerant()       { return ['admin','dg','gerant'].includes(currentUser?.role); }
-function isGest()         { return ['admin','dg','gerant','gestionnaire'].includes(currentUser?.role); }
-function isCommercial()   { return ['admin','dg','gerant','resp_commercial','commercial'].includes(currentUser?.role); }
-function isRespComm()     { return ['admin','dg','gerant','resp_commercial'].includes(currentUser?.role); } // peut faire factures
-function isComptable()    { return ['admin','dg','gerant','comptable'].includes(currentUser?.role); }
-function canSeeAnalyse()  { return ['admin','dg','gerant','gestionnaire','resp_commercial','comptable'].includes(currentUser?.role); }
-// DG voit la vue consolidée comme l'admin
+function isGest()         { return hasPerm('stock') || hasPerm('produits') || hasPerm('achats'); }
+function isCommercial()   { return hasPerm('pos') || hasPerm('ventes'); }
+function isRespComm()     { return hasPerm('facture'); }
+function isComptable()    { return hasPerm('comptabilite') || hasPerm('depenses'); }
+function canSeeAnalyse()  { return hasPerm('analyse'); }
 function canSeeConsolide(){ return ['admin','dg'].includes(currentUser?.role); }
-// Seul admin gère utilisateurs & paramètres
 function canAdmin()       { return currentUser?.role === 'admin'; }
 
 async function api(path, opts={}) {
@@ -465,29 +484,26 @@ function updateUserPanel() {
 }
 
 function applyRoleNav() {
-  const role = currentUser?.role;
-  // Paramètres & utilisateurs → admin uniquement
-  document.querySelectorAll('.nav-admin').forEach(el => el.style.display = canAdmin() ? '' : 'none');
-  // Finances (dépenses, compta) → gérant, comptable, DG, admin
-  document.querySelectorAll('.nav-finances').forEach(el => el.style.display = (isGerant() || isComptable()) ? '' : 'none');
-  // Stock, achats, produits, fournisseurs → gestionnaire+
-  document.querySelectorAll('.nav-gestionnaire').forEach(el => el.style.display = isGest() ? '' : 'none');
-  // POS → tout sauf comptable
-  document.querySelectorAll('.nav-pos').forEach(el => el.style.display = (role !== 'comptable') ? '' : 'none');
-  // Analyse → gestionnaire, resp_commercial, comptable, gérant, DG, admin
-  document.querySelectorAll('.nav-analyse').forEach(el => el.style.display = canSeeAnalyse() ? '' : 'none');
-  // Pages qui nécessitent un magasin sélectionné
-  document.querySelectorAll('.need-store').forEach(el => {
-    if(!currentMagasinId) el.style.display = 'none';
-    else el.style.display = ''; // let other rules override if needed
+  // Liens avec data-perm : afficher selon hasPerm()
+  document.querySelectorAll('#sidebar-nav a[data-perm]').forEach(el => {
+    const show = hasPerm(el.dataset.perm) && (el.classList.contains('need-store') ? !!currentMagasinId : true);
+    el.style.display = show ? '' : 'none';
   });
-  // Re-apply role rules after need-store (order matters)
+  // Séparateurs de section : masquer si tous les liens de la section sont cachés
+  ['nav-stock-sep','nav-finances-sep','nav-analyse-sep'].forEach(cls => {
+    const sep = document.querySelector('.'+cls);
+    if(!sep) return;
+    // Trouver les liens qui suivent ce séparateur jusqu'au prochain séparateur
+    let next = sep.nextElementSibling;
+    let anyVisible = false;
+    while(next && !next.classList.contains('nav-sep')) {
+      if(next.tagName === 'A' && next.style.display !== 'none') anyVisible = true;
+      next = next.nextElementSibling;
+    }
+    sep.style.display = anyVisible ? '' : 'none';
+  });
+  // Admin : paramètres & utilisateurs
   document.querySelectorAll('.nav-admin').forEach(el => el.style.display = canAdmin() ? '' : 'none');
-  document.querySelectorAll('.nav-finances').forEach(el => el.style.display = (isGerant() || isComptable()) ? '' : 'none');
-  document.querySelectorAll('.nav-gestionnaire').forEach(el => el.style.display = isGest() ? '' : 'none');
-  document.querySelectorAll('.nav-pos').forEach(el => el.style.display = (role !== 'comptable') ? '' : 'none');
-  document.querySelectorAll('.nav-analyse').forEach(el => el.style.display = canSeeAnalyse() ? '' : 'none');
-  // Sélecteur de magasin
   setupStoreSwitcher();
 }
 
@@ -931,7 +947,7 @@ async function ouvrirPaiement(){
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:4px">
               <input type="radio" name="doc-type" value="recu" checked> Reçu simple
             </label>
-            ${currentUser.role==='commercial' ? `
+            ${!hasPerm('facture') ? `
             <div style="color:var(--text-muted);font-size:11px;padding:4px 0">
               🔒 La facture est établie par la caisse ou le responsable commercial
             </div>` : `
@@ -3039,43 +3055,98 @@ async function saveMagasin(id){
   setupStoreSwitcher(); closeModal(); pageMagasins();}
 
 // ── UTILISATEURS ──────────────────────────────────────────────────────────────
-async function pageUtilisateurs(){if(!canAdmin()){restricted();return;}
-  const data=await api('/auth/utilisateurs');
-  const rL={admin:'Administrateur',dg:'Directeur Général',gerant:'Gérant',gestionnaire:'Gestionnaire',commercial:'Commercial',caissier:'Caissier',resp_commercial:'Resp. Commercial',comptable:'Comptable'};
-  const rC={admin:'badge-purple',dg:'badge-orange',gerant:'badge-teal',gestionnaire:'badge-success',commercial:'badge-pink',caissier:'badge-info'};
+const ALL_PERMS = [
+  {key:'pos',         label:'🛒 Point de vente',      group:'Ventes'},
+  {key:'ventes',      label:'📋 Voir les ventes',      group:'Ventes'},
+  {key:'facture',     label:'🧾 Émettre des factures', group:'Ventes'},
+  {key:'clients',     label:'👥 Clients',              group:'Ventes'},
+  {key:'produits',    label:'📦 Produits',             group:'Stock'},
+  {key:'stock',       label:'🏪 Stock',                group:'Stock'},
+  {key:'achats',      label:'🚚 Achats / Réception',   group:'Stock'},
+  {key:'fournisseurs',label:'🏭 Fournisseurs',         group:'Stock'},
+  {key:'depenses',    label:'💸 Dépenses',             group:'Finances'},
+  {key:'comptabilite',label:'📈 Comptabilité',         group:'Finances'},
+  {key:'analyse',     label:'🔬 Analyse & Décision',   group:'Finances'},
+  {key:'magasins',    label:'⚙️ Paramètres magasins',  group:'Admin'},
+  {key:'utilisateurs',label:'👤 Gérer utilisateurs',   group:'Admin'},
+];
+
+async function pageUtilisateurs(){
+  if(!canAdmin()){restricted();return;}
+  const data = await api('/auth/utilisateurs');
+  const rL = {admin:'Administrateur',dg:'Directeur Général',gerant:'Gérant',gestionnaire:'Gestionnaire',
+               commercial:'Commercial',caissier:'Caissier',resp_commercial:'Resp. Commercial',comptable:'Comptable'};
+  const rC = {admin:'badge-purple',dg:'badge-orange',gerant:'badge-teal',gestionnaire:'badge-success',
+               commercial:'badge-pink',caissier:'badge-info',resp_commercial:'badge-pink',comptable:'badge-teal'};
+
   document.getElementById('content').innerHTML=`
+    <style>
+      .perm-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+      .perm-chip{font-size:10px;padding:2px 7px;border-radius:99px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;white-space:nowrap}
+      .perm-chip.custom{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+    </style>
     <div class="card">
-      <div class="section-header"><h3>Utilisateurs (${data.length})</h3>
+      <div class="section-header">
+        <h3>Utilisateurs (${data.length})</h3>
         <button class="btn btn-primary" onclick="modalUser()">+ Nouvel utilisateur</button>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Nom</th><th>Identifiant</th><th>Rôle</th><th>Magasin</th><th>Statut</th><th></th></tr></thead>
-        <tbody>${data.map(u=>`
-          <tr><td><strong>${u.nom}</strong></td><td><code>${u.username}</code></td>
-          <td><span class="badge ${rC[u.role]||'badge-info'}">${rL[u.role]||u.role}</span></td>
-          <td>${u.magasin_nom||'<span class="badge badge-purple">Tous les magasins</span>'}</td>
-          <td><span class="badge ${u.actif?'badge-success':'badge-danger'}">${u.actif?'Actif':'Inactif'}</span></td>
-          <td>
-            <button class="btn-icon" onclick='modalUser(${u.id},"${u.nom.replace(/"/g,"&quot;")}","${u.username}","${u.role}",${u.magasin_id||'null'},${u.actif})'>✏️</button>
-            ${u.id!==currentUser.id?`<button class="btn-icon" onclick="delUser(${u.id},'${u.nom.replace(/'/g,"\\'")}')">🗑</button>`:''}
-          </td>
-          </tr>`).join('')}
+        <thead><tr><th>Nom</th><th>Identifiant</th><th>Rôle</th><th>Accès autorisés</th><th>Magasin</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${data.map(u=>{
+          const hasCustomPerms = u.permissions && u.permissions.length > 0;
+          const activePerms = hasCustomPerms ? u.permissions : (ROLE_PERMS_DEFAULT[u.role]||[]);
+          return `<tr>
+            <td><strong>${u.nom}</strong></td>
+            <td><code>${u.username}</code></td>
+            <td><span class="badge ${rC[u.role]||'badge-info'}">${rL[u.role]||u.role}</span>
+              ${hasCustomPerms?'<span class="badge badge-warning" style="font-size:10px;margin-left:4px">✏️ Perso.</span>':''}
+            </td>
+            <td>
+              <div class="perm-chips">
+                ${activePerms.map(p=>{
+                  const def = ALL_PERMS.find(x=>x.key===p);
+                  return def?`<span class="perm-chip ${hasCustomPerms?'custom':''}">${def.label}</span>`:'';
+                }).join('')}
+              </div>
+            </td>
+            <td>${u.magasin_nom||'<span class="badge badge-purple">Tous</span>'}</td>
+            <td><span class="badge ${u.actif?'badge-success':'badge-danger'}">${u.actif?'Actif':'Inactif'}</span></td>
+            <td style="white-space:nowrap">
+              <button class="btn-icon" title="Modifier" onclick='openModalUser(${u.id})'>✏️</button>
+              ${u.id!==currentUser.id?`<button class="btn-icon" title="Supprimer" onclick="delUser(${u.id},'${u.nom.replace(/'/g,"\\'")}')">🗑</button>`:''}
+            </td>
+          </tr>`;
+        }).join('')}
         </tbody>
       </table></div>
-      <div style="margin-top:14px;padding:11px;background:#fef3c7;border-radius:7px;font-size:12px">
-        <strong>Rôles disponibles :</strong><br><br>
-        <span class="badge badge-purple">Admin</span> Accès complet + tous les magasins + paramètres &nbsp;·&nbsp;
-        <span class="badge badge-orange">DG</span> Vue consolidée + finances + tout (sans gestion utilisateurs) &nbsp;·&nbsp;
-        <span class="badge badge-teal">Gérant</span> Tout le magasin : ventes, stock, dépenses, compta &nbsp;·&nbsp;
-        <span class="badge badge-success">Gestionnaire</span> Stock, produits, achats, fournisseurs &nbsp;·&nbsp;
-        <span class="badge badge-pink">Commercial</span> POS, ventes, clients &nbsp;·&nbsp;
-        <span class="badge badge-info">Caissier</span> POS & ventes uniquement
-      </div>
-    </div>`;}
+    </div>`;
+}
 
-function modalUser(id=null,nom='',username='',role='caissier',magasinId=null,actif=1){
-  showModal(`<div class="modal">
-    <div class="modal-header"><h3>${id?'Modifier':'Nouvel'} utilisateur</h3><button class="btn-icon" onclick="closeModal()">✕</button></div>
+// Cache des utilisateurs pour le modal
+let _usersCache = [];
+async function openModalUser(id=null){
+  if(!_usersCache.length) _usersCache = await api('/auth/utilisateurs');
+  const u = id ? _usersCache.find(x=>x.id===id) : null;
+  modalUser(
+    u?.id||null, u?.nom||'', u?.username||'', u?.role||'caissier',
+    u?.magasin_id||null, u?.actif??1, u?.permissions||[]
+  );
+}
+
+function modalUser(id=null,nom='',username='',role='caissier',magasinId=null,actif=1,perms=[]){
+  const groups = ['Ventes','Stock','Finances','Admin'];
+  const permsByGroup = groups.map(g=>({
+    group: g,
+    items: ALL_PERMS.filter(p=>p.group===g)
+  }));
+  const defaultPerms = ROLE_PERMS_DEFAULT[role]||[];
+  const activePerms  = perms.length ? perms : defaultPerms;
+
+  showModal(`<div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>${id?'Modifier':'Nouvel'} utilisateur</h3>
+      <button class="btn-icon" onclick="closeModal()">✕</button>
+    </div>
     <div class="modal-body">
       <div class="form-row">
         <div class="form-group"><label>Nom complet *</label><input id="u_n" value="${nom}"></div>
@@ -3083,19 +3154,22 @@ function modalUser(id=null,nom='',username='',role='caissier',magasinId=null,act
       </div>
       <div class="form-row">
         <div class="form-group"><label>Rôle</label>
-          <select id="u_r" onchange="toggleMagasinSel(this.value)">
-            <option value="caissier" ${role==='caissier'?'selected':''}>🔵 Caissier — POS & ventes + factures</option>
-            <option value="commercial" ${role==='commercial'?'selected':''}>🩷 Commercial — Ventes sans facture</option>
-            <option value="resp_commercial" ${role==='resp_commercial'?'selected':''}>🌸 Resp. Commercial — Ventes + factures + clients</option>
-            <option value="comptable" ${role==='comptable'?'selected':''}>🧮 Comptable — Finances & rapports</option>
-            <option value="gestionnaire" ${role==='gestionnaire'?'selected':''}>🟢 Gestionnaire — Stock & achats</option>
-            <option value="gerant" ${role==='gerant'?'selected':''}>🩵 Gérant — Tout le magasin</option>
-            <option value="dg" ${role==='dg'?'selected':''}>🟠 DG — Tous magasins + finances</option>
-            <option value="admin" ${role==='admin'?'selected':''}>🟣 Administrateur — Accès complet</option>
+          <select id="u_r" onchange="toggleMagasinSel(this.value);preRemplirPerms(this.value)">
+            <option value="caissier"        ${role==='caissier'?'selected':''}>🔵 Caissier</option>
+            <option value="commercial"      ${role==='commercial'?'selected':''}>🩷 Commercial</option>
+            <option value="resp_commercial" ${role==='resp_commercial'?'selected':''}>🌸 Resp. Commercial</option>
+            <option value="comptable"       ${role==='comptable'?'selected':''}>🧮 Comptable</option>
+            <option value="gestionnaire"    ${role==='gestionnaire'?'selected':''}>🟢 Gestionnaire</option>
+            <option value="gerant"          ${role==='gerant'?'selected':''}>🩵 Gérant</option>
+            <option value="dg"              ${role==='dg'?'selected':''}>🟠 DG</option>
+            <option value="admin"           ${role==='admin'?'selected':''}>🟣 Administrateur</option>
           </select>
         </div>
         <div class="form-group"><label>Statut</label>
-          <select id="u_a"><option value="1" ${actif?'selected':''}>Actif</option><option value="0" ${!actif?'selected':''}>Inactif</option></select>
+          <select id="u_a">
+            <option value="1" ${actif?'selected':''}>Actif</option>
+            <option value="0" ${!actif?'selected':''}>Inactif</option>
+          </select>
         </div>
       </div>
       <div class="form-group" id="magasin-sel-wrap" style="${['admin','dg'].includes(role)?'display:none':''}">
@@ -3105,35 +3179,91 @@ function modalUser(id=null,nom='',username='',role='caissier',magasinId=null,act
           ${allMagasins.map(m=>`<option value="${m.id}" ${m.id==magasinId?'selected':''}>${m.nom}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group"><label>${id?'Nouveau mot de passe (vide = inchangé)':'Mot de passe *'}</label>
+      <div class="form-group">
+        <label>${id?'Nouveau mot de passe (vide = inchangé)':'Mot de passe *'}</label>
         <input type="password" id="u_p" placeholder="${id?'Laisser vide pour ne pas changer':'Minimum 6 caractères'}">
+      </div>
+
+      <!-- ═══ PERMISSIONS ═══ -->
+      <div style="border:1.5px solid var(--border);border-radius:10px;overflow:hidden;margin-top:4px">
+        <div style="background:#f9fafb;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-weight:700;font-size:13px">🔐 Accès & Permissions</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Cochez les modules auxquels cet utilisateur a accès</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn btn-sm btn-outline" onclick="preRemplirPerms(document.getElementById('u_r').value)">
+              🔄 Préremplir selon le rôle
+            </button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="toggleAllPerms(true)">✅ Tout cocher</button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="toggleAllPerms(false)">☐ Tout décocher</button>
+          </div>
+        </div>
+        <div style="padding:14px;display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
+          ${permsByGroup.map(({group,items})=>`
+            <div>
+              <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${group}</div>
+              ${items.map(p=>`
+                <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px;border-radius:5px;transition:background .1s">
+                  <input type="checkbox" class="u_perm" value="${p.key}" ${activePerms.includes(p.key)?'checked':''}
+                    style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;flex-shrink:0">
+                  <span>${p.label}</span>
+                </label>`).join('')}
+            </div>`).join('')}
+        </div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
       <button class="btn btn-primary" onclick="saveUser(${id||'null'})">💾 Enregistrer</button>
     </div>
-  </div>`);}
+  </div>`);
+}
+
+function preRemplirPerms(role){
+  const defaults = ROLE_PERMS_DEFAULT[role]||[];
+  document.querySelectorAll('.u_perm').forEach(cb=>{
+    cb.checked = defaults.includes(cb.value);
+  });
+}
+
+function toggleAllPerms(checked){
+  document.querySelectorAll('.u_perm').forEach(cb=>cb.checked=checked);
+}
 
 function toggleMagasinSel(role){
-  // Admin et DG ont accès à tous les magasins → pas de sélection
-  document.getElementById('magasin-sel-wrap').style.display=['admin','dg'].includes(role)?'none':'';}
+  document.getElementById('magasin-sel-wrap').style.display=['admin','dg'].includes(role)?'none':'';
+}
 
 async function saveUser(id){
-  const nom=document.getElementById('u_n').value.trim();
-  const username=document.getElementById('u_u').value.trim();
-  const pwd=document.getElementById('u_p').value;
-  const role=document.getElementById('u_r').value;
-  const actif=parseInt(document.getElementById('u_a').value);
-  const magasinId=['admin','dg'].includes(role)?null:(parseInt(document.getElementById('u_m').value)||null);
-  // resp_commercial et comptable ont aussi besoin d'un magasin
+  const nom      = document.getElementById('u_n').value.trim();
+  const username = document.getElementById('u_u').value.trim();
+  const pwd      = document.getElementById('u_p').value;
+  const role     = document.getElementById('u_r').value;
+  const actif    = parseInt(document.getElementById('u_a').value);
+  const magasinId= ['admin','dg'].includes(role)?null:(parseInt(document.getElementById('u_m').value)||null);
+  const permissions = Array.from(document.querySelectorAll('.u_perm:checked')).map(cb=>cb.value);
+
   if(!nom||!username){toast('Nom et identifiant requis !','danger');return;}
   if(!id&&!pwd){toast('Mot de passe requis !','danger');return;}
-  await api(id?`/auth/utilisateurs/${id}`:'/auth/utilisateurs',{method:id?'PUT':'POST',body:{nom,username,password:pwd||null,role,magasin_id:magasinId,actif}});
-  toast(id?'Utilisateur mis à jour':'Utilisateur créé'); closeModal(); pageUtilisateurs();}
+
+  await api(id?`/auth/utilisateurs/${id}`:'/auth/utilisateurs',{
+    method: id?'PUT':'POST',
+    body: {nom, username, password:pwd||null, role, magasin_id:magasinId, actif, permissions}
+  });
+  _usersCache = []; // reset cache
+  toast(id?'Utilisateur mis à jour':'Utilisateur créé');
+  closeModal();
+  pageUtilisateurs();
+}
+
 async function delUser(id,nom){
   if(!confirm(`Supprimer "${nom}" ?`))return;
-  await api(`/auth/utilisateurs/${id}`,{method:'DELETE'}); toast('Supprimé'); pageUtilisateurs();}
+  await api(`/auth/utilisateurs/${id}`,{method:'DELETE'});
+  _usersCache = [];
+  toast('Supprimé');
+  pageUtilisateurs();
+}
 
 // ── Tabs helper ───────────────────────────────────────────────────────────────
 function switchTab(id,btn){
