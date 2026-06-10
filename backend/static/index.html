@@ -78,6 +78,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   .ls-slide-content h2{font-size:22px}
 }
 .hint-box{margin-top:16px;padding:12px;background:#f9fafb;border-radius:8px;font-size:12px;color:var(--text-muted)}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* ── APP ── */
 #app{display:none;height:100vh;overflow:hidden}
@@ -263,8 +264,20 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
         <label>Mot de passe</label>
         <input type="password" id="l-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
       </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;margin-bottom:2px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-muted);user-select:none">
+          <input type="checkbox" id="l-remember" style="width:15px;height:15px;accent-color:var(--primary);cursor:pointer">
+          Se souvenir de moi
+        </label>
+        <span id="l-saved-badge" style="display:none;font-size:11px;background:#eff6ff;color:var(--primary);border:1px solid #bfdbfe;border-radius:99px;padding:2px 9px;font-weight:600">✅ Sauvegardé</span>
+      </div>
       <button class="login-btn" onclick="doLogin()">🔐 Se connecter</button>
       <div id="login-error"></div>
+      <div id="l-auto-login-bar" style="display:none;margin-top:12px;padding:11px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;font-size:13px;color:#166534;display:none;align-items:center;gap:8px">
+        <span style="animation:spin 1s linear infinite;display:inline-block">⏳</span>
+        <span id="l-auto-login-msg">Reconnexion automatique…</span>
+        <button onclick="cancelAutoLogin()" style="margin-left:auto;background:none;border:none;color:#166534;cursor:pointer;font-size:12px;text-decoration:underline">Annuler</button>
+      </div>
       <!-- Miniatures des magasins -->
       <div class="ls-store-thumbs" id="ls-thumbs"></div>
     </div>
@@ -446,6 +459,21 @@ const LS_GRADIENTS = [
   'linear-gradient(135deg,#2d1b5e 0%,#0d0720 100%)',
 ];
 
+function loadRememberState() {
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(LS_REMEMBER_KEY)); } catch{ return null; } })();
+  const usernameEl = document.getElementById('l-username');
+  const passwordEl = document.getElementById('l-password');
+  const rememberEl = document.getElementById('l-remember');
+  const badge      = document.getElementById('l-saved-badge');
+  if(saved?.username) {
+    if(usernameEl) usernameEl.value = saved.username;
+    if(passwordEl) passwordEl.value = saved.password;
+    if(rememberEl) rememberEl.checked = true;
+    if(badge)      badge.style.display = 'inline-flex';
+  }
+  return saved;
+}
+
 async function initLandingPage() {
   try {
     _lsMagasins = await api('/auth/magasins');
@@ -459,6 +487,18 @@ async function initLandingPage() {
   buildThumbs();
   lsShow(0);
   startLsTimer();
+
+  // Auto-login si identifiants mémorisés
+  const saved = loadRememberState();
+  if(saved?.username && saved?.password) {
+    const bar    = document.getElementById('l-auto-login-bar');
+    const msgEl  = document.getElementById('l-auto-login-msg');
+    if(bar) { bar.style.display='flex'; }
+    if(msgEl) msgEl.textContent = `Reconnexion en tant que ${saved.username}…`;
+    _autoLoginTimer = setTimeout(() => {
+      doLogin({username: saved.username, password: saved.password, remember: true});
+    }, 1800);
+  }
 }
 
 function buildSlides() {
@@ -551,24 +591,53 @@ function clearLsTimer() {
 }
 
 // ── Authentification ──────────────────────────────────────────────────────────
-async function doLogin() {
-  const username = document.getElementById('l-username').value.trim();
-  const password = document.getElementById('l-password').value;
+const LS_REMEMBER_KEY = 'ym_remember';
+let _autoLoginTimer = null;
+
+async function doLogin(creds=null) {
+  const username = creds?.username ?? document.getElementById('l-username').value.trim();
+  const password = creds?.password ?? document.getElementById('l-password').value;
+  const remember = creds?.remember  ?? document.getElementById('l-remember').checked;
   const errEl = document.getElementById('login-error');
-  errEl.style.display='none';
+  if(errEl) errEl.style.display='none';
   if(!username||!password) { showLoginError('Remplissez tous les champs'); return; }
   try {
     const user = await api('/auth/login', {method:'POST', body:{username, password}});
+    if(remember) {
+      localStorage.setItem(LS_REMEMBER_KEY, JSON.stringify({username, password}));
+    } else {
+      localStorage.removeItem(LS_REMEMBER_KEY);
+    }
     currentUser = user;
     document.getElementById('login-screen').style.display='none';
     document.getElementById('app').classList.add('visible');
     await initApp();
-  } catch(e) { showLoginError('Identifiant ou mot de passe incorrect'); }
+  } catch(e) {
+    localStorage.removeItem(LS_REMEMBER_KEY);
+    showLoginError('Identifiant ou mot de passe incorrect');
+    // Réafficher le formulaire si auto-login a échoué
+    const bar = document.getElementById('l-auto-login-bar');
+    if(bar) bar.style.display='none';
+  }
 }
 
 function showLoginError(msg) {
   const el = document.getElementById('login-error');
+  if(!el) return;
   el.textContent=msg; el.style.display='block'; el.style.color='var(--danger)'; el.style.fontSize='13px'; el.style.textAlign='center'; el.style.marginTop='10px';
+}
+
+function cancelAutoLogin() {
+  if(_autoLoginTimer) { clearTimeout(_autoLoginTimer); _autoLoginTimer=null; }
+  localStorage.removeItem(LS_REMEMBER_KEY);
+  const bar = document.getElementById('l-auto-login-bar');
+  if(bar) bar.style.display='none';
+  const badge = document.getElementById('l-saved-badge');
+  if(badge) badge.style.display='none';
+  const cb = document.getElementById('l-remember');
+  if(cb) cb.checked=false;
+  document.getElementById('l-username').value='';
+  document.getElementById('l-password').value='';
 }
 
 function logout() {
@@ -577,6 +646,8 @@ function logout() {
   document.getElementById('app').classList.remove('visible');
   document.getElementById('login-screen').style.display='flex';
   document.getElementById('l-password').value='';
+  // Ne pas effacer le "remember me" — juste réafficher la page
+  loadRememberState();
 }
 
 // ── Init app ──────────────────────────────────────────────────────────────────
