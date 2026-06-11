@@ -612,6 +612,10 @@ async function doLogin(creds=null) {
     document.getElementById('login-screen').style.display='none';
     document.getElementById('app').classList.add('visible');
     await initApp();
+    // Forcer le changement de mot de passe à la première connexion
+    if(user.password_changed === 0) {
+      setTimeout(() => forceChangePasswordModal(), 400);
+    }
   } catch(e) {
     localStorage.removeItem(LS_REMEMBER_KEY);
     showLoginError('Identifiant ou mot de passe incorrect');
@@ -625,6 +629,105 @@ function showLoginError(msg) {
   const el = document.getElementById('login-error');
   if(!el) return;
   el.textContent=msg; el.style.display='block'; el.style.color='var(--danger)'; el.style.fontSize='13px'; el.style.textAlign='center'; el.style.marginTop='10px';
+}
+
+function forceChangePasswordModal() {
+  // Modal non-fermable — l'utilisateur DOIT changer son mot de passe
+  const overlay = document.createElement('div');
+  overlay.id = 'force-pwd-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:36px 32px;width:100%;max-width:420px;box-shadow:0 24px 64px rgba(0,0,0,.3)">
+      <div style="text-align:center;margin-bottom:24px">
+        <div style="font-size:48px;margin-bottom:8px">🔐</div>
+        <h2 style="font-size:20px;font-weight:800;color:#111827">Bienvenue, ${currentUser.nom} !</h2>
+        <p style="font-size:13px;color:#6b7280;margin-top:6px">Pour la sécurité de votre compte, vous devez définir un nouveau mot de passe avant de continuer.</p>
+      </div>
+      <div class="form-group" style="margin-bottom:14px">
+        <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em">Nouveau mot de passe</label>
+        <input type="password" id="fcp-new" placeholder="Minimum 6 caractères"
+          style="width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:14px;outline:none"
+          oninput="fcpValidate()" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='#e5e7eb'">
+      </div>
+      <div class="form-group" style="margin-bottom:20px">
+        <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em">Confirmer le mot de passe</label>
+        <input type="password" id="fcp-confirm" placeholder="Répétez le mot de passe"
+          style="width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:14px;outline:none"
+          oninput="fcpValidate()" onkeydown="if(event.key==='Enter')fcpSave()"
+          onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='#e5e7eb'">
+      </div>
+      <div id="fcp-hint" style="font-size:12px;margin-bottom:16px;min-height:18px;text-align:center"></div>
+      <div id="fcp-strength" style="height:4px;border-radius:99px;background:#e5e7eb;margin-bottom:16px;overflow:hidden">
+        <div id="fcp-strength-bar" style="height:100%;width:0;transition:width .3s,background .3s;border-radius:99px"></div>
+      </div>
+      <button id="fcp-btn" onclick="fcpSave()" disabled
+        style="width:100%;padding:13px;background:#d1d5db;color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:not-allowed;transition:all .2s">
+        Définir le mot de passe
+      </button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function fcpValidate() {
+  const newPwd     = document.getElementById('fcp-new').value;
+  const confirmPwd = document.getElementById('fcp-confirm').value;
+  const hint       = document.getElementById('fcp-hint');
+  const btn        = document.getElementById('fcp-btn');
+  const bar        = document.getElementById('fcp-strength-bar');
+
+  // Force meter
+  let strength = 0;
+  if(newPwd.length >= 6)  strength++;
+  if(newPwd.length >= 10) strength++;
+  if(/[A-Z]/.test(newPwd)) strength++;
+  if(/[0-9]/.test(newPwd)) strength++;
+  if(/[^A-Za-z0-9]/.test(newPwd)) strength++;
+  const colors = ['#ef4444','#f97316','#eab308','#22c55e','#16a34a'];
+  const labels = ['Trop court','Faible','Moyen','Bon','Fort'];
+  bar.style.width  = `${Math.min(strength * 20, 100)}%`;
+  bar.style.background = colors[Math.max(strength-1,0)];
+
+  if(newPwd.length < 6) {
+    hint.style.color = '#ef4444';
+    hint.textContent = 'Minimum 6 caractères requis';
+    btn.disabled = true; btn.style.background='#d1d5db'; btn.style.cursor='not-allowed';
+    return;
+  }
+  if(confirmPwd && newPwd !== confirmPwd) {
+    hint.style.color = '#ef4444';
+    hint.textContent = 'Les mots de passe ne correspondent pas';
+    btn.disabled = true; btn.style.background='#d1d5db'; btn.style.cursor='not-allowed';
+    return;
+  }
+  if(newPwd === confirmPwd && confirmPwd) {
+    hint.style.color = '#16a34a';
+    hint.textContent = `✅ Parfait ! Force : ${labels[Math.max(strength-1,0)]}`;
+    btn.disabled = false; btn.style.background='var(--primary)'; btn.style.cursor='pointer';
+  } else {
+    hint.style.color = '#6b7280';
+    hint.textContent = strength > 0 ? `Force : ${labels[Math.max(strength-1,0)]}` : '';
+    btn.disabled = true; btn.style.background='#d1d5db'; btn.style.cursor='not-allowed';
+  }
+}
+
+async function fcpSave() {
+  const newPwd = document.getElementById('fcp-new').value;
+  if(!newPwd || newPwd.length < 6) return;
+  const btn = document.getElementById('fcp-btn');
+  btn.textContent = '⏳ Enregistrement…'; btn.disabled = true;
+  try {
+    await api(`/auth/utilisateurs/${currentUser.id}/change-password`, {
+      method: 'PUT',
+      body: { new_password: newPwd }
+    });
+    currentUser.password_changed = 1;
+    document.getElementById('force-pwd-overlay')?.remove();
+    toast('🔐 Mot de passe défini avec succès !');
+  } catch(e) {
+    btn.textContent = 'Définir le mot de passe'; btn.disabled = false;
+    document.getElementById('fcp-hint').textContent = 'Erreur — réessayez';
+    document.getElementById('fcp-hint').style.color = '#ef4444';
+  }
 }
 
 function cancelAutoLogin() {
@@ -3334,49 +3437,100 @@ const ALL_PERMS = [
   {key:'utilisateurs',label:'👤 Gérer utilisateurs',   group:'Admin'},
 ];
 
+let _usersCache     = [];
+let _usersFilterMag = 'all';
+
 async function pageUtilisateurs(){
   if(!canAdmin()){restricted();return;}
   const data = await api('/auth/utilisateurs');
+  _usersCache = data;
+  renderUsersPage(data);
+}
+
+function renderUsersPage(data){
   const rL = {admin:'Administrateur',dg:'Directeur Général',gerant:'Gérant',gestionnaire:'Gestionnaire',
                commercial:'Commercial',caissier:'Caissier',resp_commercial:'Resp. Commercial',comptable:'Comptable'};
   const rC = {admin:'badge-purple',dg:'badge-orange',gerant:'badge-teal',gestionnaire:'badge-success',
                commercial:'badge-pink',caissier:'badge-info',resp_commercial:'badge-pink',comptable:'badge-teal'};
 
+  // Onglets par magasin
+  const magTabs = [
+    {id:'all', label:'🌐 Tous les magasins', count: data.length},
+    ...allMagasins.map(m=>({
+      id: String(m.id),
+      label: m.nom.replace('Ya Matériels ',''),
+      count: data.filter(u=>u.magasin_id===m.id).length
+    })),
+    {id:'global', label:'👑 Multi-magasins', count: data.filter(u=>!u.magasin_id).length}
+  ];
+
+  // Filtrer selon l'onglet actif
+  const filtered = _usersFilterMag === 'all'    ? data
+                 : _usersFilterMag === 'global'  ? data.filter(u=>!u.magasin_id)
+                 : data.filter(u=> String(u.magasin_id) === _usersFilterMag);
+
   document.getElementById('content').innerHTML=`
     <style>
-      .perm-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+      .perm-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
       .perm-chip{font-size:10px;padding:2px 7px;border-radius:99px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;white-space:nowrap}
       .perm-chip.custom{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+      .u-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:18px;overflow-x:auto}
+      .u-tab{padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted);transition:all .15s}
+      .u-tab:hover{color:var(--primary);background:#f9fafb}
+      .u-tab.active{color:var(--primary);border-bottom-color:var(--primary);background:#eff6ff}
+      .u-tab .cnt{display:inline-block;background:#e5e7eb;color:#374151;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:5px}
+      .u-tab.active .cnt{background:#bfdbfe;color:#1e40af}
+      .pwd-status{font-size:10px;padding:2px 7px;border-radius:99px;white-space:nowrap}
+      .pwd-ok{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+      .pwd-warn{background:#fef9c3;color:#854d0e;border:1px solid #fde047;animation:pulse-warn 2s infinite}
+      @keyframes pulse-warn{0%,100%{opacity:1}50%{opacity:.65}}
     </style>
     <div class="card">
-      <div class="section-header">
-        <h3>Utilisateurs (${data.length})</h3>
-        <button class="btn btn-primary" onclick="modalUser()">+ Nouvel utilisateur</button>
+      <div class="section-header" style="margin-bottom:0">
+        <h3>Utilisateurs <span style="color:var(--text-muted);font-weight:400;font-size:14px">(${data.length} comptes)</span></h3>
+        <button class="btn btn-primary" onclick="openModalUser()">+ Nouvel utilisateur</button>
+      </div>
+      <div style="padding:16px 0 0">
+        <div class="u-tabs">
+          ${magTabs.map(t=>`
+            <div class="u-tab ${_usersFilterMag===t.id?'active':''}" onclick="setUsersFilter('${t.id}')">
+              ${t.label}<span class="cnt">${t.count}</span>
+            </div>`).join('')}
+        </div>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Nom</th><th>Identifiant</th><th>Rôle</th><th>Accès autorisés</th><th>Magasin</th><th>Statut</th><th></th></tr></thead>
-        <tbody>${data.map(u=>{
+        <thead><tr>
+          <th>Nom</th><th>Identifiant</th><th>Rôle</th>
+          <th>🔐 Accès</th>
+          <th>Magasin</th><th>Statut</th><th>MDP</th><th></th>
+        </tr></thead>
+        <tbody>${filtered.map(u=>{
           const hasCustomPerms = u.permissions && u.permissions.length > 0;
           const activePerms = hasCustomPerms ? u.permissions : (ROLE_PERMS_DEFAULT[u.role]||[]);
+          const pwdOk = u.password_changed !== 0;
           return `<tr>
             <td><strong>${u.nom}</strong></td>
             <td><code>${u.username}</code></td>
-            <td><span class="badge ${rC[u.role]||'badge-info'}">${rL[u.role]||u.role}</span>
+            <td>
+              <span class="badge ${rC[u.role]||'badge-info'}">${rL[u.role]||u.role}</span>
               ${hasCustomPerms?'<span class="badge badge-warning" style="font-size:10px;margin-left:4px">✏️ Perso.</span>':''}
             </td>
             <td>
               <div class="perm-chips">
                 ${activePerms.map(p=>{
-                  const def = ALL_PERMS.find(x=>x.key===p);
+                  const def=ALL_PERMS.find(x=>x.key===p);
                   return def?`<span class="perm-chip ${hasCustomPerms?'custom':''}">${def.label}</span>`:'';
                 }).join('')}
               </div>
+              <button class="btn btn-sm btn-outline" style="margin-top:6px;font-size:11px;padding:3px 8px"
+                onclick='quickPerms(${u.id})'>⚙️ Modifier accès</button>
             </td>
             <td>${u.magasin_nom||'<span class="badge badge-purple">Tous</span>'}</td>
             <td><span class="badge ${u.actif?'badge-success':'badge-danger'}">${u.actif?'Actif':'Inactif'}</span></td>
+            <td><span class="pwd-status ${pwdOk?'pwd-ok':'pwd-warn'}">${pwdOk?'✅ OK':'⚠️ À changer'}</span></td>
             <td style="white-space:nowrap">
-              <button class="btn-icon" title="Modifier" onclick='openModalUser(${u.id})'>✏️</button>
-              ${u.id!==currentUser.id?`<button class="btn-icon" title="Supprimer" onclick="delUser(${u.id},'${u.nom.replace(/'/g,"\\'")}')">🗑</button>`:''}
+              <button class="btn-icon" title="Modifier le compte" onclick='openModalUser(${u.id})'>✏️</button>
+              ${u.id!==currentUser.id?`<button class="btn-icon" title="Supprimer" onclick="delUser(${u.id},'${u.nom.replace(/'/g,"\\'")}')">🗑️</button>`:''}
             </td>
           </tr>`;
         }).join('')}
@@ -3385,8 +3539,75 @@ async function pageUtilisateurs(){
     </div>`;
 }
 
-// Cache des utilisateurs pour le modal
-let _usersCache = [];
+function setUsersFilter(magId){
+  _usersFilterMag = magId;
+  renderUsersPage(_usersCache);
+}
+
+// Édition rapide des permissions uniquement (sans toucher au reste)
+async function quickPerms(uid){
+  if(!_usersCache.length) _usersCache = await api('/auth/utilisateurs');
+  const u = _usersCache.find(x=>x.id===uid);
+  if(!u) return;
+  const groups = ['Ventes','Stock','Finances','Admin'];
+  const permsByGroup = groups.map(g=>({group:g, items:ALL_PERMS.filter(p=>p.group===g)}));
+  const hasCustom   = u.permissions && u.permissions.length > 0;
+  const activePerms = hasCustom ? u.permissions : (ROLE_PERMS_DEFAULT[u.role]||[]);
+
+  showModal(`<div class="modal">
+    <div class="modal-header">
+      <h3>🔐 Accès — <span style="font-weight:400">${u.nom}</span></h3>
+      <button class="btn-icon" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:10px 14px;background:#f9fafb;border-radius:8px;font-size:13px">
+        <span>Magasin :</span>
+        <strong>${u.magasin_nom || '🌐 Tous les magasins'}</strong>
+        <span style="margin-left:auto;color:var(--text-muted)">Rôle par défaut : ${u.role}</span>
+        <button type="button" class="btn btn-sm btn-outline" onclick="preRemplirPerms('${u.role}')">🔄 Réinitialiser</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
+        ${permsByGroup.map(({group,items})=>`
+          <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <div style="background:#f3f4f6;padding:7px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)">${group}</div>
+            <div style="padding:8px 12px">
+            ${items.map(p=>`
+              <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px">
+                <input type="checkbox" class="u_perm" value="${p.key}" ${activePerms.includes(p.key)?'checked':''}
+                  style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;flex-shrink:0">
+                <span>${p.label}</span>
+              </label>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button type="button" class="btn btn-sm btn-outline" onclick="toggleAllPerms(true)">✅ Tout cocher</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="toggleAllPerms(false)">☐ Tout décocher</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveQuickPerms(${uid})">💾 Enregistrer les accès</button>
+    </div>
+  </div>`);
+}
+
+async function saveQuickPerms(uid){
+  const u = _usersCache.find(x=>x.id===uid);
+  if(!u) return;
+  const permissions = Array.from(document.querySelectorAll('.u_perm:checked')).map(cb=>cb.value);
+  await api(`/auth/utilisateurs/${uid}`,{
+    method:'PUT',
+    body:{ nom:u.nom, username:u.username, password:null, role:u.role,
+           magasin_id:u.magasin_id, actif:u.actif, permissions }
+  });
+  _usersCache = [];
+  toast(`✅ Accès de ${u.nom} mis à jour`);
+  closeModal();
+  pageUtilisateurs();
+}
+}
+
 async function openModalUser(id=null){
   if(!_usersCache.length) _usersCache = await api('/auth/utilisateurs');
   const u = id ? _usersCache.find(x=>x.id===id) : null;

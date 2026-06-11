@@ -5,6 +5,9 @@ from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db, hash_pwd
 
+class ChangePasswordIn(BaseModel):
+    new_password: str
+
 router = APIRouter()
 
 
@@ -64,6 +67,7 @@ def login(data: LoginIn):
         "role": user["role"],
         "magasin_id": user["magasin_id"],
         "permissions": perms,
+        "password_changed": user["password_changed"] if "password_changed" in user.keys() else 1,
     }
 
 
@@ -145,7 +149,7 @@ def create_user(u: UserIn):
         pwd = hash_pwd(u.password or "password123")
         perms_json = json.dumps(u.permissions or [])
         cur = db.execute(
-            "INSERT INTO utilisateurs (nom, username, password, role, magasin_id, actif, permissions) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO utilisateurs (nom, username, password, role, magasin_id, actif, permissions, password_changed) VALUES (?,?,?,?,?,?,?,0)",
             (u.nom, u.username, pwd, u.role, u.magasin_id, u.actif, perms_json)
         )
         db.commit()
@@ -163,8 +167,9 @@ def update_user(uid: int, u: UserIn):
     try:
         perms_json = json.dumps(u.permissions or [])
         if u.password:
+            # Admin reset password → force user to change it on next login
             db.execute(
-                "UPDATE utilisateurs SET nom=?,username=?,password=?,role=?,magasin_id=?,actif=?,permissions=? WHERE id=?",
+                "UPDATE utilisateurs SET nom=?,username=?,password=?,role=?,magasin_id=?,actif=?,permissions=?,password_changed=0 WHERE id=?",
                 (u.nom, u.username, hash_pwd(u.password), u.role, u.magasin_id, u.actif, perms_json, uid)
             )
         else:
@@ -174,6 +179,22 @@ def update_user(uid: int, u: UserIn):
             )
         db.commit()
         return {"message": "Utilisateur mis à jour"}
+    finally:
+        db.close()
+
+
+@router.put("/utilisateurs/{uid}/change-password")
+def change_password(uid: int, data: ChangePasswordIn):
+    if not data.new_password or len(data.new_password) < 6:
+        raise HTTPException(400, "Le mot de passe doit faire au moins 6 caractères")
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE utilisateurs SET password=?, password_changed=1 WHERE id=?",
+            (hash_pwd(data.new_password), uid)
+        )
+        db.commit()
+        return {"message": "Mot de passe changé"}
     finally:
         db.close()
 
