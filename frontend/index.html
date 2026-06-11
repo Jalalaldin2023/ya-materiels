@@ -597,31 +597,40 @@ let _autoLoginTimer = null;
 async function doLogin(creds=null) {
   const username = creds?.username ?? document.getElementById('l-username').value.trim();
   const password = creds?.password ?? document.getElementById('l-password').value;
-  const remember = creds?.remember  ?? document.getElementById('l-remember').checked;
+  const remember = creds?.remember  ?? (document.getElementById('l-remember')?.checked || false);
   const errEl = document.getElementById('login-error');
   if(errEl) errEl.style.display='none';
   if(!username||!password) { showLoginError('Remplissez tous les champs'); return; }
+
+  // 1. Vérifier les identifiants
+  let user;
   try {
-    const user = await api('/auth/login', {method:'POST', body:{username, password}});
-    if(remember) {
-      localStorage.setItem(LS_REMEMBER_KEY, JSON.stringify({username, password}));
-    } else {
-      localStorage.removeItem(LS_REMEMBER_KEY);
-    }
-    currentUser = user;
-    document.getElementById('login-screen').style.display='none';
-    document.getElementById('app').classList.add('visible');
-    await initApp();
-    // Forcer le changement de mot de passe à la première connexion
-    if(user.password_changed === 0) {
-      setTimeout(() => forceChangePasswordModal(), 400);
-    }
+    user = await api('/auth/login', {method:'POST', body:{username, password}});
   } catch(e) {
+    // Erreur 401 = mauvais identifiants
     localStorage.removeItem(LS_REMEMBER_KEY);
     showLoginError('Identifiant ou mot de passe incorrect');
-    // Réafficher le formulaire si auto-login a échoué
     const bar = document.getElementById('l-auto-login-bar');
     if(bar) bar.style.display='none';
+    return;
+  }
+
+  // 2. Identifiants OK — mémoriser si demandé
+  if(remember) {
+    localStorage.setItem(LS_REMEMBER_KEY, JSON.stringify({username, password}));
+  } else {
+    localStorage.removeItem(LS_REMEMBER_KEY);
+  }
+
+  // 3. Charger l'app
+  currentUser = user;
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').classList.add('visible');
+  try { await initApp(); } catch(e) { console.error('initApp error', e); }
+
+  // 4. Forcer le changement de mot de passe à la première connexion
+  if(user.password_changed === 0) {
+    setTimeout(() => forceChangePasswordModal(), 400);
   }
 }
 
