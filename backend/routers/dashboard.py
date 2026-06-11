@@ -36,18 +36,28 @@ def get_dashboard(magasin_id: int):
     total_produits = db.execute("SELECT COUNT(*) as count FROM produits WHERE magasin_id=?", (magasin_id,)).fetchone()
 
     ventes_graph = db.execute("""
-        SELECT date(created_at) as date, SUM(total) as total, COUNT(*) as count
-        FROM ventes WHERE magasin_id=? AND created_at>=date('now','-30 days')
-        GROUP BY date(created_at) ORDER BY date
+        SELECT strftime('%Y-%m', created_at) as date, SUM(total) as total, COUNT(*) as count
+        FROM ventes WHERE magasin_id=? AND created_at>=date('now','-365 days')
+        GROUP BY strftime('%Y-%m', created_at) ORDER BY date
     """, (magasin_id,)).fetchall()
 
     top_produits = db.execute("""
         SELECT p.nom, SUM(vl.quantite) as qty_vendue, SUM(vl.total) as ca
         FROM vente_lignes vl JOIN produits p ON vl.produit_id=p.id
         JOIN ventes v ON vl.vente_id=v.id
-        WHERE v.magasin_id=? AND v.created_at>=date('now','-30 days')
+        WHERE v.magasin_id=? AND v.created_at>=date('now','-365 days')
         GROUP BY p.id ORDER BY qty_vendue DESC LIMIT 5
     """, (magasin_id,)).fetchall()
+
+    ventes_annee = db.execute(
+        "SELECT COALESCE(SUM(total),0) as total, COUNT(*) as count FROM ventes WHERE magasin_id=? AND strftime('%Y',created_at)=strftime('%Y',created_at,'start of year')",
+        (magasin_id,)
+    ).fetchone()
+
+    ventes_total = db.execute(
+        "SELECT COALESCE(SUM(total),0) as total, COUNT(*) as count FROM ventes WHERE magasin_id=?",
+        (magasin_id,)
+    ).fetchone()
 
     dernieres_ventes = db.execute("""
         SELECT v.numero, v.total, v.created_at, v.statut, c.nom as client_nom, u.nom as caissier_nom
@@ -62,6 +72,7 @@ def get_dashboard(magasin_id: int):
     return {
         "ventes_jour": {"total": ventes_jour["total"], "count": ventes_jour["count"]},
         "ventes_mois": {"total": ventes_mois["total"], "count": ventes_mois["count"]},
+        "ventes_total": {"total": ventes_total["total"], "count": ventes_total["count"]},
         "depenses_mois": depenses_mois["total"],
         "achats_mois": achats_mois["total"],
         "benefice_mois": benefice,

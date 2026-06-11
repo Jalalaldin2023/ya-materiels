@@ -893,6 +893,9 @@ async function pageDashboard() {
       <div class="card"><div class="card-title">Ventes ce mois</div>
         <div class="card-value">${fmt(data.ventes_mois.total)}</div>
         <div class="text-muted" style="font-size:11px;margin-top:3px">${data.ventes_mois.count} transaction(s)</div></div>
+      <div class="card"><div class="card-title">CA total historique</div>
+        <div class="card-value success">${fmt(data.ventes_total?.total||0)}</div>
+        <div class="text-muted" style="font-size:11px;margin-top:3px">${data.ventes_total?.count||0} vente(s) au total</div></div>
       ${isAdmin()?`
       <div class="card"><div class="card-title">Bénéfice ce mois</div>
         <div class="card-value ${data.benefice_mois>=0?'success':'danger'}">${fmt(data.benefice_mois)}</div></div>
@@ -904,11 +907,11 @@ async function pageDashboard() {
     </div>
     <div class="grid-2">
       <div class="card">
-        <div class="section-header"><h3>Ventes 30 derniers jours</h3></div>
+        <div class="section-header"><h3>Ventes 12 derniers mois</h3></div>
         <canvas id="chartV" height="190"></canvas>
       </div>
       <div class="card">
-        <div class="section-header"><h3>Top 5 produits</h3></div>
+        <div class="section-header"><h3>Top 5 produits (12 mois)</h3></div>
         <table><thead><tr><th>Produit</th><th>Qté</th><th>CA</th></tr></thead><tbody>
         ${data.top_produits.map(p=>`<tr><td>${p.nom}</td><td>${fmtN(p.qty_vendue)}</td><td>${fmt(p.ca)}</td></tr>`).join('')||'<tr><td colspan="3" class="text-muted">Aucune donnée</td></tr>'}
         </tbody></table>
