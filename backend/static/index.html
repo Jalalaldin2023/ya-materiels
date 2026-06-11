@@ -3615,7 +3615,6 @@ async function saveQuickPerms(uid){
   closeModal();
   pageUtilisateurs();
 }
-}
 
 async function openModalUser(id=null){
   if(!_usersCache.length) _usersCache = await api('/auth/utilisateurs');
