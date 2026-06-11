@@ -2803,10 +2803,12 @@ async function delDep(id){if(!confirm('Supprimer ?'))return;await api(`/depenses
 // ── COMPTABILITÉ ──────────────────────────────────────────────────────────────
 let comptaData = null;
 
-async function pageComptabilite(){
+let _comptaAnnee = 'all';
+async function pageComptabilite(annee){
   if(!isGerant()){restricted();return;}
   if(!currentMagasinId){noStore();return;}
-  comptaData = await api(`/dashboard/comptabilite?magasin_id=${currentMagasinId}`);
+  if(annee !== undefined) _comptaAnnee = annee;
+  comptaData = await api(`/dashboard/comptabilite?magasin_id=${currentMagasinId}&annee=${_comptaAnnee}`);
   const m = currentMagasin();
   const d = comptaData;
 
@@ -2852,14 +2854,89 @@ async function pageComptabilite(){
       .solde-credit{color:#0e9f6e;font-weight:600;text-align:right}
     </style>
 
-    <div class="compta-tabs">
-      <button class="compta-tab active" onclick="switchCompta('vue-globale',this)">📊 Vue globale</button>
-      <button class="compta-tab" onclick="switchCompta('plan-comptable',this)">📒 Plan comptable</button>
-      <button class="compta-tab" onclick="switchCompta('graphiques',this)">📈 Graphiques</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+      <div class="compta-tabs" style="margin-bottom:0;border-bottom:none">
+        <button class="compta-tab active" onclick="switchCompta('balance-comptable',this)">⚖️ Balance</button>
+        <button class="compta-tab" onclick="switchCompta('vue-globale',this)">📊 Vue globale</button>
+        <button class="compta-tab" onclick="switchCompta('plan-comptable',this)">📒 Plan comptable</button>
+        <button class="compta-tab" onclick="switchCompta('graphiques',this)">📈 Graphiques</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;color:var(--text-muted);font-weight:600">Période :</label>
+        <select onchange="pageComptabilite(this.value)" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:#fff">
+          <option value="all" ${_comptaAnnee==='all'?'selected':''}>Tout l'historique</option>
+          ${(d.annees_dispo||[]).map(y=>`<option value="${y}" ${_comptaAnnee===y?'selected':''}>${y}</option>`).join('')}
+          <option value="mois" ${_comptaAnnee==='mois'?'selected':''}>Ce mois</option>
+        </select>
+      </div>
+    </div>
+    <div style="border-bottom:2px solid var(--border);margin-bottom:20px"></div>
+
+    <!-- ── BALANCE COMPTABLE ── -->
+    <div id="balance-comptable" class="compta-section active">
+      <div class="export-bar">
+        <strong style="font-size:13px">Exporter :</strong>
+        <button class="export-btn xlsx" onclick="exportBalance('xlsx')">📗 Excel</button>
+        <button class="export-btn pdf"  onclick="exportBalance('pdf')">📕 PDF</button>
+        <button class="export-btn csv"  onclick="exportBalance('csv')">📄 CSV</button>
+      </div>
+      ${(()=>{
+        const bal = d.balance || [];
+        const totR = bal.reduce((s,r)=>s+r.recettes,0);
+        const totA = bal.reduce((s,r)=>s+r.achats,0);
+        const totD = bal.reduce((s,r)=>s+r.depenses,0);
+        const totRes = totR - totA - totD;
+        return `
+        <div class="card" style="overflow-x:auto">
+          <div class="section-header">
+            <h3>Balance comptable — ${m?.nom||''}</h3>
+            <span style="font-size:12px;color:var(--text-muted)">${_comptaAnnee==='all'?'Tout l\'historique':_comptaAnnee==='mois'?'Ce mois':_comptaAnnee}</span>
+          </div>
+          <table style="min-width:640px">
+            <thead><tr>
+              <th>Mois</th>
+              <th style="text-align:right;color:#0e9f6e">Recettes (701)</th>
+              <th style="text-align:right;color:#e02424">Achats (601)</th>
+              <th style="text-align:right;color:#e02424">Dépenses (614)</th>
+              <th style="text-align:right">Résultat</th>
+              <th style="text-align:right;background:#f0f9ff">Solde cumulé</th>
+            </tr></thead>
+            <tbody>
+              ${bal.length ? bal.map(r=>`
+                <tr>
+                  <td><strong>${r.mois}</strong></td>
+                  <td style="text-align:right;color:#0e9f6e;font-weight:600">${r.recettes>0?fmt(r.recettes):'—'}</td>
+                  <td style="text-align:right;color:#e02424">${r.achats>0?fmt(r.achats):'—'}</td>
+                  <td style="text-align:right;color:#e02424">${r.depenses>0?fmt(r.depenses):'—'}</td>
+                  <td style="text-align:right;font-weight:600;color:${r.resultat>=0?'#0e9f6e':'#e02424'}">${fmt(r.resultat)}</td>
+                  <td style="text-align:right;font-weight:700;color:${r.solde_cumul>=0?'#1a56db':'#e02424'};background:#f0f9ff">${fmt(r.solde_cumul)}</td>
+                </tr>`).join('')
+              : '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">Aucune donnée pour cette période</td></tr>'}
+            </tbody>
+            <tfoot>
+              <tr style="background:#f9fafb;font-weight:800;font-size:13px;border-top:2px solid var(--border)">
+                <td>TOTAL</td>
+                <td style="text-align:right;color:#0e9f6e">${fmt(totR)}</td>
+                <td style="text-align:right;color:#e02424">${totA>0?fmt(totA):'—'}</td>
+                <td style="text-align:right;color:#e02424">${totD>0?fmt(totD):'—'}</td>
+                <td style="text-align:right;color:${totRes>=0?'#0e9f6e':'#e02424'}">${fmt(totRes)}</td>
+                <td style="text-align:right;color:${totRes>=0?'#1a56db':'#e02424'};background:#e0f2fe">${fmt(totRes)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div style="margin-top:12px;padding:14px 18px;border-radius:10px;background:${totRes>=0?'#f0fdf4':'#fef2f2'};border:2px solid ${totRes>=0?'#86efac':'#fca5a5'};display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-weight:700;font-size:14px">🏆 RÉSULTAT NET GLOBAL</div>
+            <div style="font-size:12px;color:var(--text-muted)">${bal.length} mois · ${_comptaAnnee==='all'?'Depuis le début':_comptaAnnee==='mois'?'Ce mois':_comptaAnnee}</div>
+          </div>
+          <div style="font-size:28px;font-weight:800;color:${totRes>=0?'#15803d':'#dc2626'}">${fmt(totRes)}</div>
+        </div>`;
+      })()}
     </div>
 
     <!-- ── VUE GLOBALE ── -->
-    <div id="vue-globale" class="compta-section active">
+    <div id="vue-globale" class="compta-section">
       <div class="export-bar">
         <strong style="font-size:13px">Exporter :</strong>
         <button class="export-btn xlsx" onclick="exportCompta('xlsx')">📗 Excel</button>
@@ -2966,6 +3043,25 @@ function switchCompta(section, btn) {
 }
 
 // ── EXPORTS COMPTABILITÉ ──────────────────────────────────────────────────────
+function exportBalance(format) {
+  const m = currentMagasin();
+  const d = comptaData;
+  const bal = d.balance || [];
+  const totR = bal.reduce((s,r)=>s+r.recettes,0);
+  const totA = bal.reduce((s,r)=>s+r.achats,0);
+  const totD = bal.reduce((s,r)=>s+r.depenses,0);
+  const rows = [
+    ['BALANCE COMPTABLE — ' + (m?.nom||''), '', '', '', '', ''],
+    ['Période : ' + (_comptaAnnee==='all'?'Tout l\'historique':_comptaAnnee==='mois'?'Ce mois':_comptaAnnee), '', '', '', '', ''],
+    [''],
+    ['Mois', 'Recettes (701)', 'Achats (601)', 'Dépenses (614)', 'Résultat', 'Solde cumulé'],
+    ...bal.map(r=>[r.mois, r.recettes, r.achats, r.depenses, r.resultat, r.solde_cumul]),
+    [''],
+    ['TOTAL', totR, totA, totD, totR-totA-totD, totR-totA-totD],
+  ];
+  exportData(rows, 'balance_comptable_' + new Date().toISOString().slice(0,10), format);
+}
+
 function exportCompta(format) {
   const m = currentMagasin();
   const d = comptaData;

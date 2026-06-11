@@ -85,42 +85,122 @@ def get_dashboard(magasin_id: int):
 
 
 @router.get("/comptabilite")
-def get_comptabilite(magasin_id: int):
+def get_comptabilite(magasin_id: int, annee: str = ""):
     db = get_db()
 
+    # Filtre de période : année spécifique ou mois courant pour les KPIs
+    if annee and annee != "all":
+        yr_filter_v  = f" AND strftime('%Y',created_at)='{annee}'"
+        yr_filter_d  = f" AND strftime('%Y',date)='{annee}'"
+    elif annee == "all":
+        yr_filter_v  = ""
+        yr_filter_d  = ""
+    else:
+        yr_filter_v  = " AND strftime('%Y-%m',created_at)=strftime('%Y-%m','now')"
+        yr_filter_d  = " AND strftime('%Y-%m',date)=strftime('%Y-%m','now')"
+
     recettes = db.execute(
-        "SELECT COALESCE(SUM(montant_paye),0) as total FROM ventes WHERE magasin_id=? AND strftime('%Y-%m',created_at)=strftime('%Y-%m','now')",
+        f"SELECT COALESCE(SUM(montant_paye),0) as total FROM ventes WHERE magasin_id=?{yr_filter_v}",
         (magasin_id,)
     ).fetchone()["total"]
 
     depenses = db.execute(
-        "SELECT COALESCE(SUM(montant),0) as total FROM depenses WHERE magasin_id=? AND strftime('%Y-%m',date)=strftime('%Y-%m','now')",
+        f"SELECT COALESCE(SUM(montant),0) as total FROM depenses WHERE magasin_id=?{yr_filter_d}",
         (magasin_id,)
     ).fetchone()["total"]
 
     achats_total = db.execute(
-        "SELECT COALESCE(SUM(montant_paye),0) as total FROM achats WHERE magasin_id=? AND strftime('%Y-%m',created_at)=strftime('%Y-%m','now')",
+        f"SELECT COALESCE(SUM(montant_paye),0) as total FROM achats WHERE magasin_id=?{yr_filter_v.replace('created_at','created_at')}",
         (magasin_id,)
     ).fetchone()["total"]
 
-    ventes_par_mois = db.execute("""
-        SELECT strftime('%Y-%m',created_at) as mois, SUM(total) as total
-        FROM ventes WHERE magasin_id=? AND strftime('%Y',created_at)=strftime('%Y','now')
-        GROUP BY mois ORDER BY mois
-    """, (magasin_id,)).fetchall()
+    # Ventes par mois (toutes années disponibles ou filtrées)
+    if annee and annee != "all":
+        ventes_par_mois = db.execute(
+            "SELECT strftime('%Y-%m',created_at) as mois, SUM(total) as total FROM ventes WHERE magasin_id=? AND strftime('%Y',created_at)=? GROUP BY mois ORDER BY mois",
+            (magasin_id, annee)
+        ).fetchall()
+    else:
+        ventes_par_mois = db.execute(
+            "SELECT strftime('%Y-%m',created_at) as mois, SUM(total) as total FROM ventes WHERE magasin_id=? GROUP BY mois ORDER BY mois",
+            (magasin_id,)
+        ).fetchall()
 
-    depenses_par_cat = db.execute("""
-        SELECT categorie, SUM(montant) as total FROM depenses
-        WHERE magasin_id=? AND strftime('%Y-%m',date)=strftime('%Y-%m','now')
-        GROUP BY categorie
-    """, (magasin_id,)).fetchall()
+    depenses_par_cat = db.execute(
+        f"SELECT categorie, SUM(montant) as total FROM depenses WHERE magasin_id=?{yr_filter_d} GROUP BY categorie",
+        (magasin_id,)
+    ).fetchall()
+
+    # Balance comptable : toutes données mensuelle (ventes + achats + dépenses)
+    if annee and annee != "all":
+        balance_rows = db.execute("""
+            SELECT mois,
+                   COALESCE(SUM(recettes),0) as recettes,
+                   COALESCE(SUM(achats),0)   as achats,
+                   COALESCE(SUM(dep),0)      as depenses
+            FROM (
+                SELECT strftime('%Y-%m',created_at) as mois, SUM(montant_paye) as recettes, 0 as achats, 0 as dep
+                FROM ventes WHERE magasin_id=? AND strftime('%Y',created_at)=?
+                GROUP BY strftime('%Y-%m',created_at)
+                UNION ALL
+                SELECT strftime('%Y-%m',created_at), 0, SUM(montant_paye), 0
+                FROM achats WHERE magasin_id=? AND strftime('%Y',created_at)=?
+                GROUP BY strftime('%Y-%m',created_at)
+                UNION ALL
+                SELECT strftime('%Y-%m',date), 0, 0, SUM(montant)
+                FROM depenses WHERE magasin_id=? AND strftime('%Y',date)=?
+                GROUP BY strftime('%Y-%m',date)
+            ) GROUP BY mois ORDER BY mois
+        """, (magasin_id, annee, magasin_id, annee, magasin_id, annee)).fetchall()
+    else:
+        balance_rows = db.execute("""
+            SELECT mois,
+                   COALESCE(SUM(recettes),0) as recettes,
+                   COALESCE(SUM(achats),0)   as achats,
+                   COALESCE(SUM(dep),0)      as depenses
+            FROM (
+                SELECT strftime('%Y-%m',created_at) as mois, SUM(montant_paye) as recettes, 0 as achats, 0 as dep
+                FROM ventes WHERE magasin_id=? GROUP BY strftime('%Y-%m',created_at)
+                UNION ALL
+                SELECT strftime('%Y-%m',created_at), 0, SUM(montant_paye), 0
+                FROM achats WHERE magasin_id=? GROUP BY strftime('%Y-%m',created_at)
+                UNION ALL
+                SELECT strftime('%Y-%m',date), 0, 0, SUM(montant)
+                FROM depenses WHERE magasin_id=? GROUP BY strftime('%Y-%m',date)
+            ) GROUP BY mois ORDER BY mois
+        """, (magasin_id, magasin_id, magasin_id)).fetchall()
+
+    # Années disponibles pour le sélecteur
+    annees_dispo = db.execute(
+        "SELECT DISTINCT strftime('%Y',created_at) as yr FROM ventes WHERE magasin_id=? ORDER BY yr DESC",
+        (magasin_id,)
+    ).fetchall()
 
     db.close()
+
+    # Calcul solde cumulé
+    balance = []
+    cumul = 0.0
+    for r in balance_rows:
+        resultat = r["recettes"] - r["achats"] - r["depenses"]
+        cumul += resultat
+        balance.append({
+            "mois": r["mois"],
+            "recettes": r["recettes"],
+            "achats": r["achats"],
+            "depenses": r["depenses"],
+            "resultat": resultat,
+            "solde_cumul": cumul,
+        })
+
     return {
         "recettes": recettes, "depenses": depenses, "achats": achats_total,
         "benefice": recettes - depenses - achats_total,
         "ventes_par_mois": [dict(r) for r in ventes_par_mois],
         "depenses_par_cat": [dict(r) for r in depenses_par_cat],
+        "balance": balance,
+        "annees_dispo": [r["yr"] for r in annees_dispo],
+        "annee_selectionnee": annee or "mois",
     }
 
 
