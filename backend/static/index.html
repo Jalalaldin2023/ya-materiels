@@ -2804,299 +2804,379 @@ async function delDep(id){if(!confirm('Supprimer ?'))return;await api(`/depenses
 let comptaData = null;
 
 let _comptaAnnee = 'all';
-async function pageComptabilite(annee){
+let _comptaTab  = 'tb';
+let _comptaJournal = [];
+async function pageComptabilite(annee, tab){
   if(!isGerant()){restricted();return;}
   if(!currentMagasinId){noStore();return;}
   if(annee !== undefined) _comptaAnnee = annee;
-  comptaData = await api(`/dashboard/comptabilite?magasin_id=${currentMagasinId}&annee=${_comptaAnnee}`);
+  if(tab   !== undefined) _comptaTab  = tab;
+  [comptaData, _comptaJournal] = await Promise.all([
+    api(`/dashboard/comptabilite?magasin_id=${currentMagasinId}&annee=${_comptaAnnee}`),
+    api(`/dashboard/journal?magasin_id=${currentMagasinId}&annee=${_comptaAnnee==='mois'?'':_comptaAnnee==='all'?'':_comptaAnnee}`),
+  ]);
   const m = currentMagasin();
-  const d = comptaData;
-
-  // Plan comptable simplifié
-  const planComptable = [
-    {classe:'7 — PRODUITS',   color:'#0e9f6e', comptes:[
-      {code:'701', libelle:'Ventes de marchandises',     debit:0,         credit:d.recettes},
-    ]},
-    {classe:'6 — CHARGES',    color:'#e02424', comptes:[
-      {code:'601', libelle:'Achats de marchandises',     debit:d.achats,  credit:0},
-      {code:'614', libelle:'Charges diverses / Dépenses',debit:d.depenses,credit:0},
-    ]},
-    {classe:'5 — TRÉSORERIE', color:'#1a56db', comptes:[
-      {code:'531', libelle:'Caisse (recettes encaissées)',debit:d.recettes,credit:d.achats+d.depenses},
-    ]},
-    {classe:'3 — STOCKS',     color:'#c27803', comptes:[
-      {code:'370', libelle:'Stock marchandises (valeur estimée)', debit:0, credit:0, note:'Voir inventaire'},
-    ]},
-  ];
+  const d = comptaData, J = _comptaJournal, bal = d.balance||[];
+  // Balance des comptes calculée depuis le journal
+  const cptes = {
+    '531':{lib:'Caisse',dbt:0,crd:0},
+    '601':{lib:'Achats de marchandises',dbt:0,crd:0},
+    '614':{lib:'Charges et dépenses',dbt:0,crd:0},
+    '701':{lib:'Ventes de marchandises',dbt:0,crd:0},
+  };
+  J.forEach(e=>{if(cptes[e.compte_debit])cptes[e.compte_debit].dbt+=e.montant;if(cptes[e.compte_credit])cptes[e.compte_credit].crd+=e.montant;});
+  const totDbt=Object.values(cptes).reduce((s,c)=>s+c.dbt,0);
+  const totCrd=Object.values(cptes).reduce((s,c)=>s+c.crd,0);
+  const charges=cptes['601'].dbt+cptes['614'].dbt, produits=cptes['701'].crd, resultat=produits-charges;
+  const periodeLabel=_comptaAnnee==='all'?"Tout l'historique":_comptaAnnee==='mois'?'Ce mois':_comptaAnnee;
 
   document.getElementById('content').innerHTML=`
-    <style>
-      .compta-tabs{display:flex;gap:3px;border-bottom:2px solid var(--border);margin-bottom:20px}
-      .compta-tab{padding:9px 20px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text-muted);border-bottom:3px solid transparent;margin-bottom:-2px}
-      .compta-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
-      .compta-section{display:none}.compta-section.active{display:block}
-      .export-bar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
-      .export-btn{display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:#fff;transition:all .15s}
-      .export-btn:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.1)}
-      .export-btn.xlsx{border-color:#16a34a;color:#16a34a}.export-btn.xlsx:hover{background:#16a34a;color:#fff}
-      .export-btn.pdf{border-color:#e02424;color:#e02424}.export-btn.pdf:hover{background:#e02424;color:#fff}
-      .export-btn.csv{border-color:#0891b2;color:#0891b2}.export-btn.csv:hover{background:#0891b2;color:#fff}
-      .export-btn.word{border-color:#1a56db;color:#1a56db}.export-btn.word:hover{background:#1a56db;color:#fff}
-      .plan-classe{margin-bottom:16px;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
-      .plan-classe-head{padding:10px 16px;font-weight:700;font-size:13px;color:#fff;display:flex;justify-content:space-between}
-      .plan-compte{display:grid;grid-template-columns:80px 1fr 140px 140px;gap:0;font-size:13px;border-bottom:1px solid var(--border)}
-      .plan-compte:last-child{border-bottom:none}
-      .plan-compte>div{padding:9px 14px}
-      .plan-compte:hover>div{background:#f9fafb}
-      .plan-head{display:grid;grid-template-columns:80px 1fr 140px 140px;background:#f9fafb;font-size:11px;font-weight:700;color:var(--text-muted)}
-      .plan-head>div{padding:7px 14px}
-      .solde-debit{color:#e02424;font-weight:600;text-align:right}
-      .solde-credit{color:#0e9f6e;font-weight:600;text-align:right}
-    </style>
-
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-      <div class="compta-tabs" style="margin-bottom:0;border-bottom:none">
-        <button class="compta-tab active" onclick="switchCompta('balance-comptable',this)">⚖️ Balance</button>
-        <button class="compta-tab" onclick="switchCompta('vue-globale',this)">📊 Vue globale</button>
-        <button class="compta-tab" onclick="switchCompta('plan-comptable',this)">📒 Plan comptable</button>
-        <button class="compta-tab" onclick="switchCompta('graphiques',this)">📈 Graphiques</button>
+  <style>
+    .sg{font-family:'Segoe UI',Arial,sans-serif}
+    .sg-hd{background:linear-gradient(135deg,#1b5e20 0%,#2e7d32 100%);color:#fff;padding:14px 20px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+    .sg-hd-ttl{font-size:17px;font-weight:700;letter-spacing:.2px}
+    .sg-hd-sub{font-size:11px;opacity:.8;margin-top:2px}
+    .sg-sel{padding:5px 10px;border-radius:4px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.12);color:#fff;font-size:12px;cursor:pointer;outline:none}
+    .sg-sel option{background:#1b5e20;color:#fff}
+    .sg-tabs{background:#edf4ed;border-bottom:2px solid #b8d4b8;display:flex;overflow-x:auto}
+    .sg-tab{padding:9px 18px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:none;color:#4a6f4a;border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:all .12s}
+    .sg-tab.active{color:#1b5e20;border-bottom-color:#2e7d32;background:#fff}
+    .sg-tab:hover:not(.active){background:#dff0df;color:#2e7d32}
+    .sg-body{background:#fff;border:1px solid #c4d8c4;border-top:none;border-radius:0 0 8px 8px}
+    .sg-sec{display:none}.sg-sec.active{display:block}
+    .sg-bar{display:flex;gap:6px;align-items:center;padding:10px 16px;background:#f7fcf7;border-bottom:1px solid #dfeadf;flex-wrap:wrap}
+    .sg-bl{font-size:11px;color:#5a7a5a;font-weight:700;margin-right:2px}
+    .sg-xb{padding:4px 11px;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid;background:#fff;transition:all .12s}
+    .sg-xb.g{border-color:#2e7d32;color:#2e7d32}.sg-xb.g:hover{background:#2e7d32;color:#fff}
+    .sg-xb.r{border-color:#c0392b;color:#c0392b}.sg-xb.r:hover{background:#c0392b;color:#fff}
+    .sg-xb.b{border-color:#1565c0;color:#1565c0}.sg-xb.b:hover{background:#1565c0;color:#fff}
+    .sg-t{width:100%;border-collapse:collapse;font-size:12px}
+    .sg-t th{background:#f0f6f0;color:#2d4a2d;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:7px 12px;border-bottom:2px solid #b8d4b8;white-space:nowrap;text-align:left}
+    .sg-t td{padding:6px 12px;border-bottom:1px solid #eaf2ea;color:#1a2e1a;vertical-align:middle}
+    .sg-t tr:nth-child(even) td{background:#fafcfa}
+    .sg-t tr:hover td{background:#f0f8f0!important}
+    .sg-t tfoot td{background:#e4efe4;font-weight:700;border-top:2px solid #9ec49e}
+    .sg-r{text-align:right;font-variant-numeric:tabular-nums;font-family:'Courier New',monospace}
+    .sg-dbt{color:#c0392b}.sg-crd{color:#1b5e20}.sg-pos{color:#1565c0;font-weight:700}.sg-neg{color:#c0392b;font-weight:700}
+    .sg-cd{font-family:'Courier New',monospace;font-size:11px;background:#e4f0e4;padding:2px 6px;border-radius:3px;color:#1b5e20;font-weight:700}
+    .sg-bv{background:#e8f5e9;color:#1b5e20;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700}
+    .sg-ba{background:#fff3e0;color:#e65100;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700}
+    .sg-bd{background:#fce4ec;color:#c0392b;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700}
+    .sg-krow{display:flex;gap:10px;flex-wrap:wrap;padding:14px;background:#f7fcf7;border-bottom:1px solid #dfeadf}
+    .sg-kpi{background:#fff;border:1px solid #c4d8c4;border-radius:6px;padding:12px 16px;flex:1;min-width:130px}
+    .sg-kl{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#6b8b6b;font-weight:700;margin-bottom:4px}
+    .sg-kv{font-size:20px;font-weight:700}
+    .sg-ks{font-size:10px;color:#888;margin-top:2px}
+    .sg-cr{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px}
+    .sg-cs{border:1px solid #c4d8c4;border-radius:6px;overflow:hidden}
+    .sg-ch{padding:10px 14px;font-weight:700;font-size:12px;color:#fff;text-transform:uppercase;letter-spacing:.3px}
+    .sg-cl{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid #eaf2ea;font-size:12px;gap:8px}
+    .sg-cl:hover{background:#f7fcf7}
+    .sg-ct{display:flex;justify-content:space-between;padding:10px 14px;font-weight:700;font-size:12px;background:#eaf2ea;border-top:2px solid #9ec49e}
+    .sg-res{margin:14px;padding:14px 20px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;border:2px solid}
+    .sg-rat{display:flex;gap:10px;flex-wrap:wrap;padding:0 14px 14px}
+    .sg-ri{background:#f7fcf7;border:1px solid #c4d8c4;border-radius:6px;padding:10px 14px;min-width:130px;flex:1}
+    @media(max-width:640px){.sg-cr{grid-template-columns:1fr}.sg-t{font-size:11px}.sg-kv{font-size:16px}}
+  </style>
+  <div class="sg">
+    <div class="sg-hd">
+      <div>
+        <div class="sg-hd-ttl">Comptabilité — ${m?.nom||''}</div>
+        <div class="sg-hd-sub">${periodeLabel} · ${J.length} opération(s) · Résultat : ${fmt(resultat)}</div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <label style="font-size:12px;color:var(--text-muted);font-weight:600">Période :</label>
-        <select onchange="pageComptabilite(this.value)" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:#fff">
-          <option value="all" ${_comptaAnnee==='all'?'selected':''}>Tout l'historique</option>
-          ${(d.annees_dispo||[]).map(y=>`<option value="${y}" ${_comptaAnnee===y?'selected':''}>${y}</option>`).join('')}
-          <option value="mois" ${_comptaAnnee==='mois'?'selected':''}>Ce mois</option>
-        </select>
-      </div>
+      <select class="sg-sel" onchange="pageComptabilite(this.value)">
+        <option value="all" ${_comptaAnnee==='all'?'selected':''}>Tout l'historique</option>
+        ${(d.annees_dispo||[]).map(y=>`<option value="${y}" ${_comptaAnnee===y?'selected':''}>${y}</option>`).join('')}
+        <option value="mois" ${_comptaAnnee==='mois'?'selected':''}>Ce mois</option>
+      </select>
     </div>
-    <div style="border-bottom:2px solid var(--border);margin-bottom:20px"></div>
+    <div class="sg-tabs">
+      <button class="sg-tab" data-tab="tb"      onclick="switchCompta('sg-tb',this)">▦ Tableau de bord</button>
+      <button class="sg-tab" data-tab="journal" onclick="switchCompta('sg-journal',this)">☰ Journal</button>
+      <button class="sg-tab" data-tab="balance" onclick="switchCompta('sg-balance',this)">⚖ Balance des comptes</button>
+      <button class="sg-tab" data-tab="resultat" onclick="switchCompta('sg-resultat',this)">∑ Compte de résultat</button>
+    </div>
+    <div class="sg-body">
 
-    <!-- ── BALANCE COMPTABLE ── -->
-    <div id="balance-comptable" class="compta-section active">
-      <div class="export-bar">
-        <strong style="font-size:13px">Exporter :</strong>
-        <button class="export-btn xlsx" onclick="exportBalance('xlsx')">📗 Excel</button>
-        <button class="export-btn pdf"  onclick="exportBalance('pdf')">📕 PDF</button>
-        <button class="export-btn csv"  onclick="exportBalance('csv')">📄 CSV</button>
-      </div>
-      ${(()=>{
-        const bal = d.balance || [];
-        const totR = bal.reduce((s,r)=>s+r.recettes,0);
-        const totA = bal.reduce((s,r)=>s+r.achats,0);
-        const totD = bal.reduce((s,r)=>s+r.depenses,0);
-        const totRes = totR - totA - totD;
-        return `
-        <div class="card" style="overflow-x:auto">
-          <div class="section-header">
-            <h3>Balance comptable — ${m?.nom||''}</h3>
-            <span style="font-size:12px;color:var(--text-muted)">${_comptaAnnee==='all'?'Tout l\'historique':_comptaAnnee==='mois'?'Ce mois':_comptaAnnee}</span>
+      <!-- TABLEAU DE BORD -->
+      <div id="sg-tb" class="sg-sec">
+        <div class="sg-krow">
+          <div class="sg-kpi">
+            <div class="sg-kl">Chiffre d'affaires</div>
+            <div class="sg-kv sg-crd">${fmt(produits)}</div>
+            <div class="sg-ks">${J.filter(e=>e.type==='vente').length} ventes</div>
           </div>
-          <table style="min-width:640px">
-            <thead><tr>
-              <th>Mois</th>
-              <th style="text-align:right;color:#0e9f6e">Recettes (701)</th>
-              <th style="text-align:right;color:#e02424">Achats (601)</th>
-              <th style="text-align:right;color:#e02424">Dépenses (614)</th>
-              <th style="text-align:right">Résultat</th>
-              <th style="text-align:right;background:#f0f9ff">Solde cumulé</th>
-            </tr></thead>
-            <tbody>
-              ${bal.length ? bal.map(r=>`
-                <tr>
-                  <td><strong>${r.mois}</strong></td>
-                  <td style="text-align:right;color:#0e9f6e;font-weight:600">${r.recettes>0?fmt(r.recettes):'—'}</td>
-                  <td style="text-align:right;color:#e02424">${r.achats>0?fmt(r.achats):'—'}</td>
-                  <td style="text-align:right;color:#e02424">${r.depenses>0?fmt(r.depenses):'—'}</td>
-                  <td style="text-align:right;font-weight:600;color:${r.resultat>=0?'#0e9f6e':'#e02424'}">${fmt(r.resultat)}</td>
-                  <td style="text-align:right;font-weight:700;color:${r.solde_cumul>=0?'#1a56db':'#e02424'};background:#f0f9ff">${fmt(r.solde_cumul)}</td>
-                </tr>`).join('')
-              : '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">Aucune donnée pour cette période</td></tr>'}
-            </tbody>
-            <tfoot>
-              <tr style="background:#f9fafb;font-weight:800;font-size:13px;border-top:2px solid var(--border)">
+          <div class="sg-kpi">
+            <div class="sg-kl">Achats fournisseurs</div>
+            <div class="sg-kv sg-dbt">${fmt(cptes['601'].dbt)}</div>
+            <div class="sg-ks">${J.filter(e=>e.type==='achat').length} achats</div>
+          </div>
+          <div class="sg-kpi">
+            <div class="sg-kl">Charges diverses</div>
+            <div class="sg-kv sg-dbt">${fmt(cptes['614'].dbt)}</div>
+            <div class="sg-ks">${J.filter(e=>e.type==='depense').length} dépenses</div>
+          </div>
+          <div class="sg-kpi" style="border-color:${resultat>=0?'#2e7d32':'#c0392b'}">
+            <div class="sg-kl">Résultat net</div>
+            <div class="sg-kv ${resultat>=0?'sg-crd':'sg-dbt'}">${fmt(resultat)}</div>
+            <div class="sg-ks">${resultat>=0?'Bénéficiaire':'Déficitaire'} · Marge ${produits>0?((resultat/produits)*100).toFixed(1):0}%</div>
+          </div>
+        </div>
+        <div style="padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="card" style="margin:0">
+            <div class="section-header"><h3>CA vs Charges par mois</h3></div>
+            <canvas id="sg-chartCA" height="180"></canvas>
+          </div>
+          <div class="card" style="margin:0">
+            <div class="section-header"><h3>Évolution mensuelle</h3></div>
+            <div style="overflow-x:auto"><table class="sg-t">
+              <thead><tr><th>Mois</th><th class="sg-r">Recettes</th><th class="sg-r">Charges</th><th class="sg-r">Résultat</th></tr></thead>
+              <tbody>${bal.map(r=>`<tr>
+                <td style="font-weight:600;color:#4a6f4a">${r.mois}</td>
+                <td class="sg-r sg-crd">${fmt(r.recettes)}</td>
+                <td class="sg-r sg-dbt">${(r.achats+r.depenses)>0?fmt(r.achats+r.depenses):'—'}</td>
+                <td class="sg-r ${r.resultat>=0?'sg-crd':'sg-dbt'}" style="font-weight:700">${fmt(r.resultat)}</td>
+              </tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#888;padding:16px">Aucune donnée</td></tr>'}</tbody>
+              <tfoot><tr>
                 <td>TOTAL</td>
-                <td style="text-align:right;color:#0e9f6e">${fmt(totR)}</td>
-                <td style="text-align:right;color:#e02424">${totA>0?fmt(totA):'—'}</td>
-                <td style="text-align:right;color:#e02424">${totD>0?fmt(totD):'—'}</td>
-                <td style="text-align:right;color:${totRes>=0?'#0e9f6e':'#e02424'}">${fmt(totRes)}</td>
-                <td style="text-align:right;color:${totRes>=0?'#1a56db':'#e02424'};background:#e0f2fe">${fmt(totRes)}</td>
-              </tr>
-            </tfoot>
+                <td class="sg-r sg-crd">${fmt(bal.reduce((s,r)=>s+r.recettes,0))}</td>
+                <td class="sg-r sg-dbt">${fmt(bal.reduce((s,r)=>s+r.achats+r.depenses,0))}</td>
+                <td class="sg-r ${resultat>=0?'sg-crd':'sg-dbt'}">${fmt(resultat)}</td>
+              </tr></tfoot>
+            </table></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- JOURNAL -->
+      <div id="sg-journal" class="sg-sec">
+        <div class="sg-bar">
+          <span class="sg-bl">Exporter :</span>
+          <button class="sg-xb g" onclick="exportJournal('xlsx')">📗 Excel</button>
+          <button class="sg-xb r" onclick="exportJournal('pdf')">📕 PDF</button>
+          <button class="sg-xb b" onclick="exportJournal('csv')">📄 CSV</button>
+          <span style="margin-left:auto;font-size:11px;color:#6b8b6b">${J.length} opération(s) · ${fmt(J.reduce((s,e)=>s+e.montant,0))}</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="sg-t" style="min-width:680px">
+            <thead><tr>
+              <th>Date</th><th>N° Pièce</th><th>Type</th><th>Tiers</th>
+              <th style="text-align:center">Cpte Débit</th>
+              <th style="text-align:center">Cpte Crédit</th>
+              <th class="sg-r">Montant</th>
+            </tr></thead>
+            <tbody>${J.length?J.map(e=>`<tr>
+              <td style="white-space:nowrap;color:#5a7a5a;font-size:11px">${e.date}</td>
+              <td style="font-size:10px;color:#4a6a4a;font-family:'Courier New',monospace;max-width:140px;overflow:hidden;text-overflow:ellipsis">${e.piece}</td>
+              <td><span class="sg-b${e.type==='vente'?'v':e.type==='achat'?'a':'d'}">${e.type==='vente'?'VENTE':e.type==='achat'?'ACHAT':'CHARGE'}</span></td>
+              <td style="font-size:11px">${e.tiers}</td>
+              <td style="text-align:center"><span class="sg-cd">${e.compte_debit}</span><br><span style="font-size:9px;color:#6b8b6b">${e.libelle_debit}</span></td>
+              <td style="text-align:center"><span class="sg-cd">${e.compte_credit}</span><br><span style="font-size:9px;color:#6b8b6b">${e.libelle_credit}</span></td>
+              <td class="sg-r" style="font-weight:600;color:${e.type==='vente'?'#1b5e20':'#c0392b'}">${fmt(e.montant)}</td>
+            </tr>`).join(''):'<tr><td colspan="7" style="text-align:center;padding:20px;color:#888">Aucune opération pour cette période</td></tr>'}
+            </tbody>
+            <tfoot><tr>
+              <td colspan="6"><strong>TOTAL PÉRIODE</strong></td>
+              <td class="sg-r"><strong>${fmt(J.reduce((s,e)=>s+e.montant,0))}</strong></td>
+            </tr></tfoot>
           </table>
         </div>
-        <div style="margin-top:12px;padding:14px 18px;border-radius:10px;background:${totRes>=0?'#f0fdf4':'#fef2f2'};border:2px solid ${totRes>=0?'#86efac':'#fca5a5'};display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div style="font-weight:700;font-size:14px">🏆 RÉSULTAT NET GLOBAL</div>
-            <div style="font-size:12px;color:var(--text-muted)">${bal.length} mois · ${_comptaAnnee==='all'?'Depuis le début':_comptaAnnee==='mois'?'Ce mois':_comptaAnnee}</div>
-          </div>
-          <div style="font-size:28px;font-weight:800;color:${totRes>=0?'#15803d':'#dc2626'}">${fmt(totRes)}</div>
-        </div>`;
-      })()}
-    </div>
+      </div>
 
-    <!-- ── VUE GLOBALE ── -->
-    <div id="vue-globale" class="compta-section">
-      <div class="export-bar">
-        <strong style="font-size:13px">Exporter :</strong>
-        <button class="export-btn xlsx" onclick="exportCompta('xlsx')">📗 Excel</button>
-        <button class="export-btn pdf"  onclick="exportCompta('pdf')">📕 PDF</button>
-        <button class="export-btn word" onclick="exportCompta('word')">📘 Word</button>
-        <button class="export-btn csv"  onclick="exportCompta('csv')">📄 CSV</button>
-      </div>
-      <div class="grid-stats" style="margin-bottom:20px">
-        <div class="card"><div class="card-title">💚 Recettes (mois)</div><div class="card-value success">${fmt(d.recettes)}</div></div>
-        <div class="card"><div class="card-title">🟠 Achats (mois)</div><div class="card-value warning">${fmt(d.achats)}</div></div>
-        <div class="card"><div class="card-title">🔴 Dépenses (mois)</div><div class="card-value warning">${fmt(d.depenses)}</div></div>
-        <div class="card"><div class="card-title">🏆 Bénéfice net</div><div class="card-value ${d.benefice>=0?'success':'danger'}">${fmt(d.benefice)}</div></div>
-      </div>
-      <!-- Tableau récapitulatif mensuel -->
-      <div class="card">
-        <div class="section-header"><h3>Récapitulatif mensuel — ${m?.nom||''}</h3></div>
-        <table><thead><tr><th>Mois</th><th style="text-align:right">Ventes</th></tr></thead>
-        <tbody>${d.ventes_par_mois.map(v=>`
-          <tr><td>${v.mois}</td><td style="text-align:right;font-weight:600;color:var(--success)">${fmt(v.total)}</td></tr>`).join('')||'<tr><td colspan="2" class="text-muted" style="text-align:center">Aucune donnée</td></tr>'}
-        </tbody>
-        <tfoot><tr style="background:#f9fafb;font-weight:700">
-          <td>TOTAL</td>
-          <td style="text-align:right;color:var(--success)">${fmt(d.ventes_par_mois.reduce((s,v)=>s+v.total,0))}</td>
-        </tr></tfoot>
-        </table>
-      </div>
-    </div>
-
-    <!-- ── PLAN COMPTABLE ── -->
-    <div id="plan-comptable" class="compta-section">
-      <div class="export-bar">
-        <strong style="font-size:13px">Exporter le plan :</strong>
-        <button class="export-btn xlsx" onclick="exportPlan('xlsx')">📗 Excel</button>
-        <button class="export-btn pdf"  onclick="exportPlan('pdf')">📕 PDF</button>
-        <button class="export-btn csv"  onclick="exportPlan('csv')">📄 CSV</button>
-      </div>
-      ${planComptable.map(cls=>`
-        <div class="plan-classe">
-          <div class="plan-classe-head" style="background:${cls.color}">
-            <span>${cls.classe}</span>
-            <span style="opacity:.8;font-size:11px">Ce mois</span>
-          </div>
-          <div class="plan-head">
-            <div>Code</div><div>Libellé</div>
-            <div style="text-align:right">Débit</div>
-            <div style="text-align:right">Crédit</div>
-          </div>
-          ${cls.comptes.map(c=>`
-            <div class="plan-compte">
-              <div><code>${c.code}</code></div>
-              <div>${c.libelle}${c.note?`<br><small style="color:var(--text-muted)">${c.note}</small>`:''}</div>
-              <div class="solde-debit">${c.debit>0?fmt(c.debit):'—'}</div>
-              <div class="solde-credit">${c.credit>0?fmt(c.credit):'—'}</div>
-            </div>`).join('')}
-          <div style="display:grid;grid-template-columns:80px 1fr 140px 140px;background:#f9fafb;font-weight:700;font-size:12px">
-            <div style="padding:7px 14px"></div>
-            <div style="padding:7px 14px">SOLDE</div>
-            <div style="padding:7px 14px;text-align:right;color:#e02424">${fmt(cls.comptes.reduce((s,c)=>s+c.debit,0))}</div>
-            <div style="padding:7px 14px;text-align:right;color:#0e9f6e">${fmt(cls.comptes.reduce((s,c)=>s+c.credit,0))}</div>
-          </div>
-        </div>`).join('')}
-
-      <!-- Résultat net -->
-      <div style="margin-top:16px;padding:16px;border-radius:10px;background:${d.benefice>=0?'#f0fdf4':'#fef2f2'};border:2px solid ${d.benefice>=0?'#86efac':'#fca5a5'}">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div style="font-weight:700;font-size:14px">🏆 RÉSULTAT NET DU MOIS</div>
-            <div style="font-size:12px;color:var(--text-muted)">Produits (Cl.7) — Charges (Cl.6)</div>
-          </div>
-          <div style="font-size:28px;font-weight:800;color:${d.benefice>=0?'#15803d':'#dc2626'}">${fmt(d.benefice)}</div>
+      <!-- BALANCE DES COMPTES -->
+      <div id="sg-balance" class="sg-sec">
+        <div class="sg-bar">
+          <span class="sg-bl">Exporter :</span>
+          <button class="sg-xb g" onclick="exportBalance('xlsx')">📗 Excel</button>
+          <button class="sg-xb r" onclick="exportBalance('pdf')">📕 PDF</button>
+          <button class="sg-xb b" onclick="exportBalance('csv')">📄 CSV</button>
+          <span style="margin-left:auto;font-size:11px;color:#6b8b6b">${totDbt===totCrd?'✅ Équilibré':'⚠️ Écart '+fmt(Math.abs(totDbt-totCrd))}</span>
+        </div>
+        <div style="padding:14px;padding-bottom:0">
+          <div style="font-size:11px;font-weight:700;color:#2d4a2d;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Balance des comptes</div>
+          <div style="overflow-x:auto">
+          <table class="sg-t" style="min-width:560px">
+            <thead><tr>
+              <th>Compte</th><th>Libellé</th>
+              <th class="sg-r">Mvt Débiteurs</th><th class="sg-r">Mvt Créditeurs</th>
+              <th class="sg-r">Solde Débiteur</th><th class="sg-r">Solde Créditeur</th>
+            </tr></thead>
+            <tbody>${Object.entries(cptes).map(([code,c])=>{
+              const s=c.dbt-c.crd;
+              return `<tr>
+                <td><span class="sg-cd">${code}</span></td>
+                <td>${c.lib}</td>
+                <td class="sg-r sg-dbt">${c.dbt>0?fmt(c.dbt):'—'}</td>
+                <td class="sg-r sg-crd">${c.crd>0?fmt(c.crd):'—'}</td>
+                <td class="sg-r ${s>0?'sg-neg':''}">${s>0?fmt(s):'—'}</td>
+                <td class="sg-r ${s<0?'sg-pos':''}">${s<0?fmt(-s):'—'}</td>
+              </tr>`;}).join('')}
+            </tbody>
+            <tfoot><tr>
+              <td colspan="2"><strong>TOTAUX</strong></td>
+              <td class="sg-r sg-dbt"><strong>${fmt(totDbt)}</strong></td>
+              <td class="sg-r sg-crd"><strong>${fmt(totCrd)}</strong></td>
+              <td class="sg-r"><strong>${fmt(Object.values(cptes).reduce((s,c)=>s+Math.max(c.dbt-c.crd,0),0))}</strong></td>
+              <td class="sg-r"><strong>${fmt(Object.values(cptes).reduce((s,c)=>s+Math.max(c.crd-c.dbt,0),0))}</strong></td>
+            </tr></tfoot>
+          </table></div>
+        </div>
+        <div style="padding:14px">
+          <div style="font-size:11px;font-weight:700;color:#2d4a2d;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Balance mensuelle</div>
+          <div style="overflow-x:auto">
+          <table class="sg-t" style="min-width:560px">
+            <thead><tr>
+              <th>Période</th>
+              <th class="sg-r">Recettes (701)</th><th class="sg-r">Achats (601)</th>
+              <th class="sg-r">Charges (614)</th><th class="sg-r">Résultat</th>
+              <th class="sg-r" style="background:#e4efe4">Solde cumulé</th>
+            </tr></thead>
+            <tbody>${bal.length?bal.map(r=>`<tr>
+              <td style="font-weight:600">${r.mois}</td>
+              <td class="sg-r sg-crd">${r.recettes>0?fmt(r.recettes):'—'}</td>
+              <td class="sg-r sg-dbt">${r.achats>0?fmt(r.achats):'—'}</td>
+              <td class="sg-r sg-dbt">${r.depenses>0?fmt(r.depenses):'—'}</td>
+              <td class="sg-r ${r.resultat>=0?'sg-crd':'sg-dbt'}">${fmt(r.resultat)}</td>
+              <td class="sg-r ${r.solde_cumul>=0?'sg-pos':'sg-neg'}" style="background:#f0f8f0">${fmt(r.solde_cumul)}</td>
+            </tr>`).join(''):'<tr><td colspan="6" style="text-align:center;color:#888;padding:16px">Aucune donnée</td></tr>'}
+            </tbody>
+            <tfoot><tr>
+              <td><strong>TOTAL</strong></td>
+              <td class="sg-r sg-crd"><strong>${fmt(bal.reduce((s,r)=>s+r.recettes,0))}</strong></td>
+              <td class="sg-r sg-dbt"><strong>${fmt(bal.reduce((s,r)=>s+r.achats,0))}</strong></td>
+              <td class="sg-r sg-dbt"><strong>${fmt(bal.reduce((s,r)=>s+r.depenses,0))}</strong></td>
+              <td class="sg-r ${resultat>=0?'sg-crd':'sg-dbt'}"><strong>${fmt(resultat)}</strong></td>
+              <td class="sg-r ${resultat>=0?'sg-pos':'sg-neg'}" style="background:#e4efe4"><strong>${fmt(resultat)}</strong></td>
+            </tr></tfoot>
+          </table></div>
         </div>
       </div>
-    </div>
 
-    <!-- ── GRAPHIQUES ── -->
-    <div id="graphiques" class="compta-section">
-      <div class="grid-2">
-        <div class="card"><div class="section-header"><h3>Ventes par mois</h3></div><canvas id="chartC" height="210"></canvas></div>
-        <div class="card"><div class="section-header"><h3>Dépenses par catégorie</h3></div><canvas id="chartCat" height="210"></canvas></div>
+      <!-- COMPTE DE RÉSULTAT -->
+      <div id="sg-resultat" class="sg-sec">
+        <div class="sg-bar">
+          <span class="sg-bl">Exporter :</span>
+          <button class="sg-xb g" onclick="exportResultat('xlsx')">📗 Excel</button>
+          <button class="sg-xb r" onclick="exportResultat('pdf')">📕 PDF</button>
+          <span class="sg-bl" style="margin-left:auto">Période : ${periodeLabel}</span>
+        </div>
+        <div class="sg-cr">
+          <div class="sg-cs">
+            <div class="sg-ch" style="background:#c0392b">CHARGES — Classe 6</div>
+            <div class="sg-cl">
+              <span><span class="sg-cd" style="background:#fce4ec;color:#c0392b">601</span> Achats de marchandises</span>
+              <span class="sg-dbt" style="font-weight:600">${fmt(cptes['601'].dbt)}</span>
+            </div>
+            <div class="sg-cl">
+              <span><span class="sg-cd" style="background:#fce4ec;color:#c0392b">614</span> Charges et dépenses</span>
+              <span class="sg-dbt" style="font-weight:600">${cptes['614'].dbt>0?fmt(cptes['614'].dbt):'—'}</span>
+            </div>
+            <div class="sg-ct"><span>Total Charges</span><span class="sg-dbt">${fmt(charges)}</span></div>
+          </div>
+          <div class="sg-cs">
+            <div class="sg-ch" style="background:#1b5e20">PRODUITS — Classe 7</div>
+            <div class="sg-cl">
+              <span><span class="sg-cd">701</span> Ventes de marchandises</span>
+              <span class="sg-crd" style="font-weight:600">${fmt(produits)}</span>
+            </div>
+            <div class="sg-ct"><span>Total Produits</span><span class="sg-crd">${fmt(produits)}</span></div>
+          </div>
+        </div>
+        <div class="sg-res" style="background:${resultat>=0?'#f0fdf4':'#fef2f2'};border-color:${resultat>=0?'#86efac':'#fca5a5'}">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:${resultat>=0?'#15803d':'#dc2626'}">${resultat>=0?'BÉNÉFICE NET':'DÉFICIT NET'}</div>
+            <div style="font-size:11px;color:#6b7280">${periodeLabel} · Produits (Cl.7) − Charges (Cl.6)</div>
+          </div>
+          <div style="font-size:26px;font-weight:800;color:${resultat>=0?'#15803d':'#dc2626'}">${fmt(Math.abs(resultat))}</div>
+        </div>
+        <div style="padding:0 14px 6px;font-size:11px;font-weight:700;color:#2d4a2d;text-transform:uppercase;letter-spacing:.5px">Ratios de gestion</div>
+        <div class="sg-rat">
+          ${[
+            {label:'Marge brute',val:produits>0?(((produits-cptes['601'].dbt)/produits)*100).toFixed(1)+'%':'—',color:'#1b5e20'},
+            {label:'Taux de charges',val:produits>0?((charges/produits)*100).toFixed(1)+'%':'—',color:'#c0392b'},
+            {label:'Rentabilité nette',val:produits>0?((resultat/produits)*100).toFixed(1)+'%':'—',color:resultat>=0?'#1565c0':'#c0392b'},
+            {label:'Ratio achats/CA',val:produits>0?((cptes['601'].dbt/produits)*100).toFixed(1)+'%':'—',color:'#555'},
+          ].map(r=>`<div class="sg-ri">
+            <div style="font-size:10px;text-transform:uppercase;color:#6b8b6b;font-weight:700">${r.label}</div>
+            <div style="font-size:20px;font-weight:700;color:${r.color}">${r.val}</div>
+          </div>`).join('')}
+        </div>
       </div>
-    </div>`;
 
+    </div>
+  </div>`;
+
+  // Activer le bon onglet
+  const activeTabEl = document.querySelector(`.sg-tab[data-tab="${_comptaTab}"]`);
+  if(activeTabEl) { activeTabEl.click(); }
+  else { document.querySelector('.sg-tab')?.click(); }
+
+  // Charts
   if(chartC)chartC.destroy(); if(chartCat)chartCat.destroy();
-  const c1=document.getElementById('chartC')?.getContext('2d');
-  if(c1)chartC=new Chart(c1,{type:'bar',data:{labels:d.ventes_par_mois.map(v=>v.mois),datasets:[{label:'Ventes',data:d.ventes_par_mois.map(v=>v.total),backgroundColor:'#1a56db88',borderColor:'#1a56db',borderWidth:1}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fmtN(v)}}}}});
-  const c2=document.getElementById('chartCat')?.getContext('2d');
-  if(c2&&d.depenses_par_cat.length)chartCat=new Chart(c2,{type:'doughnut',data:{labels:d.depenses_par_cat.map(x=>x.categorie),datasets:[{data:d.depenses_par_cat.map(x=>x.total),backgroundColor:['#1a56db','#0e9f6e','#e02424','#c27803','#7c3aed','#db2777']}]},options:{responsive:true}});
+  const c1=document.getElementById('sg-chartCA')?.getContext('2d');
+  if(c1) chartC=new Chart(c1,{
+    type:'bar',
+    data:{
+      labels:bal.map(r=>r.mois),
+      datasets:[
+        {label:'Recettes',data:bal.map(r=>r.recettes),backgroundColor:'#2e7d3288',borderColor:'#2e7d32',borderWidth:1},
+        {label:'Charges',data:bal.map(r=>r.achats+r.depenses),backgroundColor:'#c0392b44',borderColor:'#c0392b',borderWidth:1},
+      ]
+    },
+    options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},scales:{y:{ticks:{callback:v=>fmtN(v)}}}}
+  });
 }
 
 function switchCompta(section, btn) {
-  document.querySelectorAll('.compta-section').forEach(s=>s.classList.remove('active'));
-  document.querySelectorAll('.compta-tab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.sg-sec').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.sg-tab').forEach(b=>b.classList.remove('active'));
   document.getElementById(section)?.classList.add('active');
-  btn.classList.add('active');
-  // Redessiner graphiques si nécessaire
-  if(section==='graphiques') {
-    setTimeout(()=>{
-      const c1=document.getElementById('chartC')?.getContext('2d');
-      if(c1&&chartC) chartC.resize();
-      const c2=document.getElementById('chartCat')?.getContext('2d');
-      if(c2&&chartCat) chartCat.resize();
-    },100);
-  }
+  btn?.classList.add('active');
+  _comptaTab = btn?.dataset?.tab || _comptaTab;
+  if(section==='sg-tb') setTimeout(()=>chartC?.resize(),120);
 }
 
-// ── EXPORTS COMPTABILITÉ ──────────────────────────────────────────────────────
+// ── EXPORTS ──────────────────────────────────────────────────────────────────
+function exportJournal(format) {
+  const m=currentMagasin(), J=_comptaJournal;
+  const rows=[
+    ['JOURNAL DES OPÉRATIONS — '+(m?.nom||''),'','','','','',''],
+    ['Période : '+(_comptaAnnee==='all'?"Tout l'historique":_comptaAnnee==='mois'?'Ce mois':_comptaAnnee),'','','','','',''],[''],
+    ['Date','N° Pièce','Type','Tiers','Cpte Débit','Cpte Crédit','Montant'],
+    ...J.map(e=>[e.date,e.piece,e.type,e.tiers,e.compte_debit,e.compte_credit,e.montant]),
+    [''],['TOTAL','','','','','',J.reduce((s,e)=>s+e.montant,0)],
+  ];
+  exportData(rows,'journal_'+new Date().toISOString().slice(0,10),format);
+}
+
 function exportBalance(format) {
-  const m = currentMagasin();
-  const d = comptaData;
-  const bal = d.balance || [];
-  const totR = bal.reduce((s,r)=>s+r.recettes,0);
-  const totA = bal.reduce((s,r)=>s+r.achats,0);
-  const totD = bal.reduce((s,r)=>s+r.depenses,0);
-  const rows = [
-    ['BALANCE COMPTABLE — ' + (m?.nom||''), '', '', '', '', ''],
-    ['Période : ' + (_comptaAnnee==='all'?'Tout l\'historique':_comptaAnnee==='mois'?'Ce mois':_comptaAnnee), '', '', '', '', ''],
-    [''],
-    ['Mois', 'Recettes (701)', 'Achats (601)', 'Dépenses (614)', 'Résultat', 'Solde cumulé'],
-    ...bal.map(r=>[r.mois, r.recettes, r.achats, r.depenses, r.resultat, r.solde_cumul]),
-    [''],
-    ['TOTAL', totR, totA, totD, totR-totA-totD, totR-totA-totD],
+  const m=currentMagasin(), bal=(comptaData.balance||[]);
+  const totR=bal.reduce((s,r)=>s+r.recettes,0), totA=bal.reduce((s,r)=>s+r.achats,0), totD=bal.reduce((s,r)=>s+r.depenses,0);
+  const rows=[
+    ['BALANCE COMPTABLE — '+(m?.nom||''),'','','','',''],
+    ['Période : '+(_comptaAnnee==='all'?"Tout l'historique":_comptaAnnee==='mois'?'Ce mois':_comptaAnnee),'','','','',''],[''],
+    ['Mois','Recettes (701)','Achats (601)','Dépenses (614)','Résultat','Solde cumulé'],
+    ...bal.map(r=>[r.mois,r.recettes,r.achats,r.depenses,r.resultat,r.solde_cumul]),
+    [''],['TOTAL',totR,totA,totD,totR-totA-totD,totR-totA-totD],
   ];
-  exportData(rows, 'balance_comptable_' + new Date().toISOString().slice(0,10), format);
+  exportData(rows,'balance_comptable_'+new Date().toISOString().slice(0,10),format);
 }
 
-function exportCompta(format) {
-  const m = currentMagasin();
-  const d = comptaData;
-  const rows = [
-    ['Rapport Comptable — ' + (m?.nom||''), '', ''],
-    ['Période : Ce mois', '', ''],
-    ['', '', ''],
-    ['INDICATEUR', 'MONTANT (FCFA)'],
-    ['Recettes (ventes encaissées)', d.recettes],
-    ['Achats fournisseurs', d.achats],
-    ['Dépenses diverses', d.depenses],
-    ['BÉNÉFICE NET', d.benefice],
-    ['', ''],
-    ['VENTES PAR MOIS', ''],
-    ...d.ventes_par_mois.map(v=>[v.mois, v.total]),
-    ['', ''],
-    ['DÉPENSES PAR CATÉGORIE', ''],
-    ...d.depenses_par_cat.map(x=>[x.categorie, x.total]),
+function exportResultat(format) {
+  const m=currentMagasin(), J=_comptaJournal;
+  const cp={'601':{dbt:0},'614':{dbt:0},'701':{crd:0}};
+  J.forEach(e=>{if(cp[e.compte_debit])cp[e.compte_debit].dbt+=e.montant;if(cp[e.compte_credit])cp[e.compte_credit].crd+=e.montant;});
+  const charges=cp['601'].dbt+cp['614'].dbt, produits=cp['701'].crd;
+  const rows=[
+    ['COMPTE DE RÉSULTAT — '+(m?.nom||''),''],
+    ['Période : '+(_comptaAnnee==='all'?"Tout l'historique":_comptaAnnee==='mois'?'Ce mois':_comptaAnnee),''],[''],
+    ['CHARGES','MONTANT (FCFA)','PRODUITS','MONTANT (FCFA)'],
+    ['601 — Achats de marchandises',cp['601'].dbt,'701 — Ventes de marchandises',produits],
+    ['614 — Charges et dépenses',cp['614'].dbt,'',''],
+    ['Total Charges',charges,'Total Produits',produits],[''],
+    [produits>=charges?'BÉNÉFICE NET':'DÉFICIT NET',Math.abs(produits-charges),'',''],
   ];
-  exportData(rows, 'comptabilite_' + new Date().toISOString().slice(0,10), format);
-}
-
-function exportPlan(format) {
-  const d = comptaData;
-  const rows = [
-    ['PLAN COMPTABLE SIMPLIFIÉ', '', '', ''],
-    ['Code', 'Libellé', 'Débit (FCFA)', 'Crédit (FCFA)'],
-    ['701','Ventes de marchandises', 0, d.recettes],
-    ['601','Achats de marchandises', d.achats, 0],
-    ['614','Charges diverses', d.depenses, 0],
-    ['531','Caisse', d.recettes, d.achats+d.depenses],
-    ['', '','',''],
-    ['','RÉSULTAT NET', '', d.benefice],
-  ];
-  exportData(rows, 'plan_comptable_' + new Date().toISOString().slice(0,10), format);
+  exportData(rows,'compte_resultat_'+new Date().toISOString().slice(0,10),format);
 }
 
 function exportData(rows, filename, format) {

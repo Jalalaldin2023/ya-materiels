@@ -204,6 +204,64 @@ def get_comptabilite(magasin_id: int, annee: str = ""):
     }
 
 
+@router.get("/journal")
+def get_journal(magasin_id: int, annee: str = "", mois: str = ""):
+    db = get_db()
+
+    def yr_clause_v(field="created_at"):
+        if mois: return f" AND strftime('%Y-%m',{field})='{mois}'"
+        if annee and annee != "all": return f" AND strftime('%Y',{field})='{annee}'"
+        return ""
+
+    # Ventes → Débit 531 Caisse / Crédit 701 Ventes
+    ventes = db.execute(f"""
+        SELECT date(v.created_at) as date, v.numero as piece, v.montant_paye as montant,
+               COALESCE(c.nom,'Comptant') as tiers, v.notes
+        FROM ventes v LEFT JOIN clients c ON v.client_id=c.id
+        WHERE v.magasin_id=?{yr_clause_v()} AND v.montant_paye>0
+        ORDER BY v.created_at
+    """, (magasin_id,)).fetchall()
+
+    # Achats → Débit 601 Achats / Crédit 531 Caisse
+    achats = db.execute(f"""
+        SELECT date(a.created_at) as date, a.numero as piece, a.montant_paye as montant,
+               COALESCE(f.nom,'Fournisseur') as tiers, a.notes
+        FROM achats a LEFT JOIN fournisseurs f ON a.fournisseur_id=f.id
+        WHERE a.magasin_id=?{yr_clause_v()} AND a.montant_paye>0
+        ORDER BY a.created_at
+    """, (magasin_id,)).fetchall()
+
+    # Dépenses → Débit 614 Charges / Crédit 531 Caisse
+    depenses = db.execute(f"""
+        SELECT date, description||' ('||categorie||')' as piece,
+               montant, 'Divers' as tiers, notes
+        FROM depenses WHERE magasin_id=?{yr_clause_v('date')} AND montant>0
+        ORDER BY date
+    """, (magasin_id,)).fetchall()
+
+    db.close()
+
+    entries = []
+    for v in ventes:
+        entries.append({"date": v["date"], "piece": v["piece"],
+                        "compte_debit": "531", "libelle_debit": "Caisse",
+                        "compte_credit": "701", "libelle_credit": "Ventes de marchandises",
+                        "tiers": v["tiers"], "montant": v["montant"], "type": "vente"})
+    for a in achats:
+        entries.append({"date": a["date"], "piece": a["piece"],
+                        "compte_debit": "601", "libelle_debit": "Achats de marchandises",
+                        "compte_credit": "531", "libelle_credit": "Caisse",
+                        "tiers": a["tiers"], "montant": a["montant"], "type": "achat"})
+    for dep in depenses:
+        entries.append({"date": dep["date"], "piece": dep["piece"],
+                        "compte_debit": "614", "libelle_debit": "Charges et dépenses",
+                        "compte_credit": "531", "libelle_credit": "Caisse",
+                        "tiers": dep["tiers"], "montant": dep["montant"], "type": "depense"})
+
+    entries.sort(key=lambda x: x["date"])
+    return entries
+
+
 @router.get("/consolidé")
 def get_consolide():
     """Vue consolidée des deux magasins pour l'admin."""
