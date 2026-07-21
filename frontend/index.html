@@ -2955,6 +2955,7 @@ async function pageComptabilite(annee, tab){
           <button class="sg-xb g" onclick="exportJournal('xlsx')">📗 Excel</button>
           <button class="sg-xb r" onclick="exportJournal('pdf')">📕 PDF</button>
           <button class="sg-xb b" onclick="exportJournal('csv')">📄 CSV</button>
+          <button class="sg-xb" style="background:#eef2ff;color:#3730a3" onclick="exportSage100()">🧾 Sage 100 i7 (FEC)</button>
           <span style="margin-left:auto;font-size:11px;color:#6b8b6b">${J.length} opération(s) · ${fmt(J.reduce((s,e)=>s+e.montant,0))}</span>
         </div>
         <div style="overflow-x:auto">
@@ -3147,6 +3148,41 @@ function exportJournal(format) {
     [''],['TOTAL','','','','','',J.reduce((s,e)=>s+e.montant,0)],
   ];
   exportData(rows,'journal_'+new Date().toISOString().slice(0,10),format);
+}
+
+// Export au format FEC (Fichier des Écritures Comptables) — importable dans Sage 100 i7
+// via Fichier > Import > Écritures comptables (import "à façon" en mappant les colonnes ci-dessous).
+function exportSage100() {
+  const J = _comptaJournal;
+  if(!J.length) { toast('Aucune écriture à exporter pour cette période', 'warning'); return; }
+
+  const yyyymmdd = d => d.replace(/-/g,'');
+  const num = n => (n||0).toFixed(2);
+
+  const header = ['JournalCode','JournalLib','EcritureNum','EcritureDate','CompteNum','CompteLib',
+    'CompAuxNum','CompAuxLib','PieceRef','PieceDate','EcritureLib','Debit','Credit',
+    'EcritureLet','DateLet','ValidDate','Montantdevise','Idevise'];
+
+  const jCode = t => t==='vente' ? 'VE' : t==='achat' ? 'AC' : 'OD';
+  const jLib  = t => t==='vente' ? 'JOURNAL DES VENTES' : t==='achat' ? 'JOURNAL DES ACHATS' : 'OPERATIONS DIVERSES';
+
+  const lines = [header];
+  J.forEach((e, i) => {
+    const ecritureNum = String(i+1).padStart(6,'0');
+    const date = yyyymmdd(e.date);
+    const libelle = `${e.type==='vente'?'Vente':e.type==='achat'?'Achat':'Charge'} - ${e.tiers}`;
+    lines.push([jCode(e.type), jLib(e.type), ecritureNum, date, e.compte_debit, e.libelle_debit,
+      '', '', e.piece, date, libelle, num(e.montant), num(0), '', '', '', '', '']);
+    lines.push([jCode(e.type), jLib(e.type), ecritureNum, date, e.compte_credit, e.libelle_credit,
+      '', '', e.piece, date, libelle, num(0), num(e.montant), '', '', '', '', '']);
+  });
+
+  const content = lines.map(r => r.join('\t')).join('\r\n');
+  const blob = new Blob(['﻿'+content], {type:'text/plain;charset=utf-8'});
+  const m = currentMagasin();
+  const periode = _comptaAnnee==='all' ? 'complet' : _comptaAnnee==='mois' ? new Date().toISOString().slice(0,7) : _comptaAnnee;
+  dlBlob(blob, `FEC_${(m?.nom||'magasin').replace(/\s+/g,'')}_${periode}.txt`);
+  toast('Export FEC généré — à importer dans Sage 100 i7 via Fichier > Import > Écritures', 'success');
 }
 
 function exportBalance(format) {

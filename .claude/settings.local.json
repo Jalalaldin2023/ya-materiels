@@ -44,7 +44,31 @@
       "Bash(xargs kill -9)",
       "Bash(curl -s \"http://localhost:8000/api/produits?magasin_id=1\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); cats=set\\(p['categorie_nom'] for p in d if p['categorie_nom']\\); print\\(f'{len\\(d\\)} produits, {len\\(cats\\)} catégories:', sorted\\(cats\\)\\)\")",
-      "Bash(python3 -c \"import main; print\\('✅ Backend OK'\\)\")"
+      "Bash(python3 -c \"import main; print\\('✅ Backend OK'\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(m['nom'], '| photo:', m.get\\('photo','N/A'\\)\\) for m in d]\")",
+      "Bash(python3 -c \"import routers.auth; print\\('auth OK'\\)\")",
+      "Bash(python3 -c \"import database; print\\('db OK'\\)\")",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin123\"}')",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('Magasins OK:', len\\(d\\)\\)\")",
+      "Bash(kill 90570)",
+      "Bash(python3 -m uvicorn main:app --host 0.0.0.0 --port 8000)",
+      "Bash(curl -s http://localhost:8000/api/auth/login -X POST -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin123\"}')",
+      "Bash(curl -sv http://localhost:8000/api/auth/login -X POST -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin123\"}')",
+      "Bash(curl -s http://localhost:8000/api/auth/login -X POST -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"mauvais\"}')",
+      "Bash(python3 -c \"import json,sys; print\\('OK', len\\(json.load\\(sys.stdin\\)\\)\\)\")",
+      "Bash(extract-text \"/Users/pc/Downloads/Ventes_Complet_Oct2025_Avr2026.xlsx\")",
+      "Bash(curl -s http://localhost:8000/ventes?magasin_id=1)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Total: {len\\(d[\\\\\"items\\\\\"]\\) if isinstance\\(d,dict\\) else len\\(d\\)}'\\); print\\(str\\(d\\)[:500]\\)\")",
+      "Bash(curl -s \"http://localhost:8000/ventes?magasin_id=1&limit=5\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(type\\(d\\), str\\(d\\)[:500]\\)\")",
+      "Bash(curl -s \"http://localhost:8000/openapi.json\")",
+      "Bash(curl -s \"http://localhost:8000/api/ventes?magasin_id=1&limit=5\")",
+      "Bash(curl -s \"http://localhost:8000/api/ventes?magasin_id=1\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} ventes, première: {d[0][\\\\\"numero\\\\\"]} {d[0][\\\\\"created_at\\\\\"][:10]}'\\)\")",
+      "Bash(cp /Users/pc/APP/frontend/index.html /Users/pc/APP/backend/static/index.html)",
+      "Bash(pkill -f \"uvicorn main:app\")",
+      "Bash(curl -s \"http://localhost:8000/api/dashboard?magasin_id=1\")",
+      "Bash(curl -s \"http://localhost:8000/api/dashboard/journal?magasin_id=1\")"
     ]
   }
 }
