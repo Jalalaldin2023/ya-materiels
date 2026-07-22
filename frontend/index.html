@@ -2956,6 +2956,7 @@ async function pageComptabilite(annee, tab){
           <button class="sg-xb r" onclick="exportJournal('pdf')">📕 PDF</button>
           <button class="sg-xb b" onclick="exportJournal('csv')">📄 CSV</button>
           <button class="sg-xb" style="background:#eef2ff;color:#3730a3" onclick="exportSage100()">🧾 Sage 100 i7 (FEC)</button>
+          <button class="sg-xb" style="background:#f3e8ff;color:#6b21a8" onclick="exportBrouillard()">🖨️ Brouillard</button>
           <span style="margin-left:auto;font-size:11px;color:#6b8b6b">${J.length} opération(s) · ${fmt(J.reduce((s,e)=>s+e.montant,0))}</span>
         </div>
         <div style="overflow-x:auto">
@@ -3183,6 +3184,103 @@ function exportSage100() {
   const periode = _comptaAnnee==='all' ? 'complet' : _comptaAnnee==='mois' ? new Date().toISOString().slice(0,7) : _comptaAnnee;
   dlBlob(blob, `FEC_${(m?.nom||'magasin').replace(/\s+/g,'')}_${periode}.txt`);
   toast('Export FEC généré — à importer dans Sage 100 i7 via Fichier > Import > Écritures', 'success');
+}
+
+// Export "Brouillard" — reproduit la mise en page du journal papier Sage 100 i7
+// (une ligne par mouvement débit/crédit, groupé par journal, en-tête classique Sage).
+function exportBrouillard() {
+  const J = _comptaJournal;
+  if(!J.length) { toast('Aucune écriture à exporter pour cette période', 'warning'); return; }
+
+  const m = currentMagasin();
+  const now = new Date();
+  const jourFmt = d => { const [y,mo,da] = d.split('-'); return `${da}${mo}${y.slice(2)}`; };
+  const montantFmt = n => (n||0).toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+  const journaux = [
+    {code:'VE', lib:'Journal des ventes',      type:'vente'},
+    {code:'AC', lib:'Journal des achats',      type:'achat'},
+    {code:'OD', lib:'Opérations diverses',     type:'depense'},
+  ];
+
+  const dates = J.map(e=>e.date).sort();
+  const periodeDeb = dates[0], periodeFin = dates[dates.length-1];
+  const fmtDate = d => { const [y,mo,da]=d.split('-'); return `${da}/${mo}/${y.slice(2)}`; };
+
+  let sections = '';
+  journaux.forEach(jr => {
+    const entries = J.filter(e=>e.type===jr.type).sort((a,b)=> a.date===b.date ? String(a.piece).localeCompare(String(b.piece)) : a.date.localeCompare(b.date));
+    if(!entries.length) return;
+
+    const mvts = [];
+    entries.forEach(e => {
+      const libelle = `${e.type==='vente'?'Vente':e.type==='achat'?'Achat':'Charge'} - ${e.tiers}${e.notes?' ('+e.notes+')':''}`;
+      mvts.push({jour:e.date, piece:e.piece, compte:e.compte_debit, tiers:'', libelle, debit:e.montant, credit:0});
+      mvts.push({jour:e.date, piece:e.piece, compte:e.compte_credit, tiers:'', libelle, debit:0, credit:e.montant});
+    });
+
+    const totDbt = mvts.reduce((s,r)=>s+r.debit,0), totCrd = mvts.reduce((s,r)=>s+r.credit,0);
+
+    sections += `
+    <div class="brl-page">
+      <div class="brl-hd">
+        <div class="brl-col"><strong>${(m?.nom||'').toUpperCase()}</strong></div>
+        <div class="brl-col brl-c"><span class="brl-title">Brouillard</span></div>
+        <div class="brl-col brl-r">Période du ${fmtDate(periodeDeb)}<br>au ${fmtDate(periodeFin)}</div>
+      </div>
+      <div class="brl-hd">
+        <div class="brl-col"></div>
+        <div class="brl-col brl-c">${jr.code}&nbsp;&nbsp;${jr.lib}</div>
+        <div class="brl-col brl-r">Tenue de compte : FCFA</div>
+      </div>
+      <div class="brl-hd brl-sub">
+        <div class="brl-col">Comptabilité N°${m?.id||''}</div>
+        <div class="brl-col brl-c">Date de tirage ${now.toLocaleDateString('fr-FR')} à ${now.toLocaleTimeString('fr-FR')}</div>
+        <div class="brl-col brl-r">Page : 1</div>
+      </div>
+      <table class="brl-t">
+        <thead><tr>
+          <th>Jour</th><th>N° pièce</th><th>N° compte</th><th>N° tiers</th>
+          <th>Libellé écriture</th><th class="brl-r">Mvts débit</th><th class="brl-r">Mvts crédit</th>
+        </tr></thead>
+        <tbody>
+          ${mvts.map(r=>`<tr>
+            <td>${jourFmt(r.jour)}</td><td>${r.piece}</td><td>${r.compte}</td><td>${r.tiers}</td>
+            <td>${r.libelle}</td>
+            <td class="brl-r">${r.debit>0?montantFmt(r.debit):''}</td>
+            <td class="brl-r">${r.credit>0?montantFmt(r.credit):''}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr>
+          <td colspan="5" class="brl-r"><strong>Totaux</strong></td>
+          <td class="brl-r"><strong>${montantFmt(totDbt)}</strong></td>
+          <td class="brl-r"><strong>${montantFmt(totCrd)}</strong></td>
+        </tr></tfoot>
+      </table>
+    </div>`;
+  });
+
+  const w = window.open('','_blank','width=1000,height=750');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Brouillard</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;font-size:11px;padding:20px;color:#111}
+    .brl-page{margin-bottom:36px}
+    .brl-page:not(:last-child){page-break-after:always}
+    .brl-hd{display:flex;justify-content:space-between;padding:2px 0;font-size:11px}
+    .brl-sub{border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:6px}
+    .brl-col{flex:1}
+    .brl-c{text-align:center}
+    .brl-r{text-align:right}
+    .brl-title{font-size:20px;font-weight:700}
+    .brl-t{width:100%;border-collapse:collapse;margin-top:6px}
+    .brl-t th{border-top:1px solid #000;border-bottom:1px solid #000;padding:4px 6px;text-align:left;font-size:11px}
+    .brl-t td{padding:3px 6px;font-size:11px;vertical-align:top}
+    .brl-t tfoot td{border-top:1px solid #000;padding-top:6px}
+    @media print{body{padding:10px}}
+  </style></head><body>
+  ${sections || '<p>Aucune écriture pour cette période.</p>'}
+  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
 }
 
 function exportBalance(format) {

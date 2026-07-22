@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import os
+import traceback
 
 from database import init_db
 from routers import produits, ventes, clients, fournisseurs, achats, depenses, stock, dashboard, auth
@@ -15,6 +16,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
 
 app.include_router(produits.router, prefix="/api/produits", tags=["Produits"])
 app.include_router(ventes.router, prefix="/api/ventes", tags=["Ventes"])

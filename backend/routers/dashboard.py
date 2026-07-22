@@ -258,7 +258,7 @@ def get_journal(magasin_id: int, annee: str = "", mois: str = ""):
                         "compte_credit": "531", "libelle_credit": "Caisse",
                         "tiers": dep["tiers"], "montant": dep["montant"], "type": "depense"})
 
-    entries.sort(key=lambda x: x["date"])
+    entries.sort(key=lambda x: x["date"] or "")
     return entries
 
 

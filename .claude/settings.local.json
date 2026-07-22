@@ -68,7 +68,10 @@
       "Bash(cp /Users/pc/APP/frontend/index.html /Users/pc/APP/backend/static/index.html)",
       "Bash(pkill -f \"uvicorn main:app\")",
       "Bash(curl -s \"http://localhost:8000/api/dashboard?magasin_id=1\")",
-      "Bash(curl -s \"http://localhost:8000/api/dashboard/journal?magasin_id=1\")"
+      "Bash(curl -s \"http://localhost:8000/api/dashboard/journal?magasin_id=1\")",
+      "Bash(brew --version)",
+      "Bash(gh --version)",
+      "Bash(brew install *)"
     ]
   }
 }
