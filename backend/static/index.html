@@ -373,9 +373,9 @@ const fmtD = s => s ? new Date(s).toLocaleDateString('fr-FR') : '-';
 function currentMagasin() { return allMagasins.find(m => m.id === currentMagasinId) || null; }
 // ── Permissions par rôle (défauts) ───────────────────────────────────────────
 const ROLE_PERMS_DEFAULT = {
-  admin:           ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs'],
+  admin:           ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs','historique_ventes'],
   dg:              ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture'],
-  gerant:          ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture'],
+  gerant:          ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture','historique_ventes'],
   gestionnaire:    ['pos','ventes','produits','stock','achats','clients','fournisseurs'],
   resp_commercial: ['pos','ventes','clients','facture','analyse'],
   comptable:       ['ventes','clients','fournisseurs','achats','depenses','comptabilite','analyse'],
@@ -926,7 +926,23 @@ async function pageDashboard() {
         <td><span class="badge ${v.statut==='payee'?'badge-success':'badge-warning'}">${v.statut}</span></td>
         <td>${fmtDT(v.created_at)}</td></tr>`).join('')||'<tr><td colspan="6" class="text-muted" style="text-align:center;padding:16px">Aucune vente</td></tr>'}
       </tbody></table></div>
-    </div>`;
+    </div>
+    ${hasPerm('historique_ventes')?`
+    <div class="card mt-4">
+      <div class="section-header"><h3>🕘 Historique des ventes</h3></div>
+      <div class="search-bar" style="flex-wrap:wrap;gap:8px">
+        <input type="date" id="hv-dd" value="${_hvDebut}" onchange="_hvDebut=this.value">
+        <span style="align-self:center;color:var(--text-muted);font-size:12px">au</span>
+        <input type="date" id="hv-df" value="${_hvFin}" onchange="_hvFin=this.value">
+        <button class="btn btn-primary" onclick="renderHistoriqueVentes(document.getElementById('hv-dd').value,document.getElementById('hv-df').value)">🔍 Rechercher</button>
+        <button class="btn btn-outline" onclick="hvPreset('jour')">Aujourd'hui</button>
+        <button class="btn btn-outline" onclick="hvPreset('semaine')">7 jours</button>
+        <button class="btn btn-outline" onclick="hvPreset('mois')">Ce mois</button>
+        <button class="btn btn-outline" onclick="hvPreset('annee')">Cette année</button>
+        <button class="btn btn-outline" onclick="hvPreset('tout')">Tout l'historique</button>
+      </div>
+      <div id="hv-body"></div>
+    </div>`:''}`;
 
   if(chartV) chartV.destroy();
   const ctx = document.getElementById('chartV')?.getContext('2d');
@@ -935,6 +951,78 @@ async function pageDashboard() {
     data:{labels:data.ventes_graph.map(v=>v.date),datasets:[{label:'Ventes',data:data.ventes_graph.map(v=>v.total),borderColor:getComputedStyle(document.documentElement).getPropertyValue('--primary').trim(),backgroundColor:'rgba(26,86,219,.1)',fill:true,tension:.4}]},
     options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>fmtN(v)}}}}
   });
+
+  if(hasPerm('historique_ventes')) renderHistoriqueVentes(_hvDebut, _hvFin);
+}
+
+// ── Historique des ventes (Tableau de bord — gérant/admin) ───────────────────
+function _hvFirstDayMonth(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; }
+function _hvToday(){ return new Date().toISOString().slice(0,10); }
+let _hvDebut = _hvFirstDayMonth();
+let _hvFin   = _hvToday();
+let _hvVentes = [];
+
+function hvPreset(p) {
+  const today = new Date();
+  let dd = _hvFirstDayMonth(), df = _hvToday();
+  if(p==='jour')    { dd = _hvToday(); df = _hvToday(); }
+  if(p==='semaine') { const d=new Date(); d.setDate(d.getDate()-7); dd = d.toISOString().slice(0,10); df = _hvToday(); }
+  if(p==='mois')    { dd = _hvFirstDayMonth(); df = _hvToday(); }
+  if(p==='annee')   { dd = `${today.getFullYear()}-01-01`; df = _hvToday(); }
+  if(p==='tout')    { dd = ''; df = ''; }
+  document.getElementById('hv-dd').value = dd;
+  document.getElementById('hv-df').value = df;
+  renderHistoriqueVentes(dd, df);
+}
+
+async function renderHistoriqueVentes(dd, df) {
+  _hvDebut = dd; _hvFin = df;
+  const body = document.getElementById('hv-body');
+  if(!body) return;
+  body.innerHTML = '<p class="text-muted" style="padding:14px">Chargement...</p>';
+  let url = `/ventes?magasin_id=${currentMagasinId}`;
+  if(dd) url += `&date_debut=${dd}`;
+  if(df) url += `&date_fin=${df}`;
+  const data = await api(url);
+  // Ordre chronologique croissant pour un cumul lisible
+  const rows = [...data].sort((a,b)=>a.created_at.localeCompare(b.created_at));
+  let cumul = 0;
+  _hvVentes = rows.map(v => { cumul += v.montant_paye; return {...v, cumul}; });
+  const total = rows.reduce((s,v)=>s+v.montant_paye, 0);
+  const panierMoyen = rows.length ? total/rows.length : 0;
+
+  body.innerHTML = `
+    <div class="grid-stats" style="margin:14px 0">
+      <div class="card"><div class="card-title">Nombre de ventes</div><div class="card-value">${fmtN(rows.length)}</div></div>
+      <div class="card"><div class="card-title">Cumul de la période</div><div class="card-value success">${fmt(total)}</div></div>
+      <div class="card"><div class="card-title">Panier moyen</div><div class="card-value">${fmt(panierMoyen)}</div></div>
+    </div>
+    <div class="search-bar" style="justify-content:flex-end">
+      <button class="sg-xb g" onclick="hvExport('xlsx')">📗 Excel</button>
+      <button class="sg-xb b" onclick="hvExport('csv')">📄 CSV</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>N°</th><th>Client</th><th>Caissier</th><th>Statut</th><th>Montant</th><th>Cumul</th></tr></thead>
+      <tbody>${_hvVentes.map(v=>`
+        <tr>
+          <td>${fmtDT(v.created_at)}</td><td><strong>${v.numero}</strong></td>
+          <td>${v.client_nom||'Comptant'}</td><td>${v.caissier_nom||'-'}</td>
+          <td><span class="badge ${v.statut==='payee'?'badge-success':'badge-warning'}">${v.statut}</span></td>
+          <td>${fmt(v.montant_paye)}</td><td style="font-weight:600">${fmt(v.cumul)}</td>
+        </tr>`).join('') || '<tr><td colspan="7" class="text-muted" style="text-align:center;padding:16px">Aucune vente sur cette période</td></tr>'}
+      </tbody>
+    </table></div>`;
+}
+
+function hvExport(format) {
+  const m = currentMagasin();
+  const rows = [
+    ['HISTORIQUE DES VENTES — '+(m?.nom||''),'','','','',''],
+    ['Période : '+(_hvDebut||'origine')+' au '+(_hvFin||"aujourd'hui"),'','','','',''],[''],
+    ['Date','N°','Client','Caissier','Montant','Cumul'],
+    ..._hvVentes.map(v=>[fmtDT(v.created_at),v.numero,v.client_nom||'Comptant',v.caissier_nom||'-',v.montant_paye,v.cumul]),
+  ];
+  exportData(rows, 'historique_ventes_'+new Date().toISOString().slice(0,10), format);
 }
 
 async function pageDashboardConsolide() {
