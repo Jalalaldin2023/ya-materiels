@@ -218,7 +218,7 @@ def get_journal(magasin_id: int, annee: str = "", mois: str = ""):
         SELECT date(v.created_at) as date, v.numero as piece, v.montant_paye as montant,
                COALESCE(c.nom,'Comptant') as tiers, v.notes
         FROM ventes v LEFT JOIN clients c ON v.client_id=c.id
-        WHERE v.magasin_id=?{yr_clause_v()} AND v.montant_paye>0
+        WHERE v.magasin_id=?{yr_clause_v('v.created_at')} AND v.montant_paye>0
         ORDER BY v.created_at
     """, (magasin_id,)).fetchall()
 
@@ -227,7 +227,7 @@ def get_journal(magasin_id: int, annee: str = "", mois: str = ""):
         SELECT date(a.created_at) as date, a.numero as piece, a.montant_paye as montant,
                COALESCE(f.nom,'Fournisseur') as tiers, a.notes
         FROM achats a LEFT JOIN fournisseurs f ON a.fournisseur_id=f.id
-        WHERE a.magasin_id=?{yr_clause_v()} AND a.montant_paye>0
+        WHERE a.magasin_id=?{yr_clause_v('a.created_at')} AND a.montant_paye>0
         ORDER BY a.created_at
     """, (magasin_id,)).fetchall()
 
