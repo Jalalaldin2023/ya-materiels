@@ -1260,7 +1260,7 @@ function addPanier(id){
   const prix=getPrixProduit(p);
   const ex=panier.find(x=>x.id===id);
   if(ex){if(ex.qty>=p.quantite){toast('Stock insuffisant !','danger');return;}ex.qty++;}
-  else panier.push({id,nom:p.nom,prix,pv:pvNiveau,qty:1,max:p.quantite,
+  else panier.push({id,nom:p.nom,code:p.code||'',prix,pv:pvNiveau,qty:1,max:p.quantite,
     pv1:p.prix_vente, pv2:p.prix_vente2||p.prix_vente, pv3:p.prix_vente3||p.prix_vente});
   renderPanier();
 }
@@ -1488,166 +1488,195 @@ async function confirmerVente(total,rem){
     panier=[]; renderPanier(); document.getElementById('remise').value=0;
     pvNiveau=1; setPvNiveau(1);
     posProds=await api(`/produits?magasin_id=${currentMagasinId}`); filterPos();
-    if(docType==='facture') printFacture(res,snap,total,rem,mode,rec,client);
+    if(docType==='facture') printFacture(res,snap,total,rem,mode,rec,client,null,currentUser?.nom);
     else printReceipt(res,snap,total,mode,rec);
   }catch(e){}
 }
 
 function printReceipt(res,lignes,total,mode,recu){
   const m=currentMagasin()||{};
-  const w=window.open('','_blank','width=400,height=700');
-  w.document.write(`<html><head><title>Reçu</title>
-  <style>body{font-family:monospace;font-size:12px;padding:16px;max-width:300px}
-  .c{text-align:center}.s{border-top:1px dashed #000;margin:7px 0}
-  .r{display:flex;justify-content:space-between;margin:2px 0}</style></head><body>
-  <div class="c"><strong style="font-size:15px">${m.nom||'Quincaillerie'}</strong><br>
-  ${m.adresse?`<span>${m.adresse}</span><br>`:''}
-  ${m.telephone?`<span>Tél: ${m.telephone}</span><br>`:''}
-  ${m.rccm?`<span>RCCM: ${m.rccm}</span><br>`:''}
-  ${m.nif?`<span>NIF: ${m.nif}</span><br>`:''}
-  <br><strong>REÇU N° ${res.numero}</strong><br>
-  ${new Date().toLocaleString('fr-FR')}</div>
+  const w=window.open('','_blank','width=420,height=700');
+  const ORG='#e07b39';
+  w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Reçu ${res.numero}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Courier New',monospace;font-size:12px;color:#1f2937;background:#fff;padding:18px;max-width:300px;margin:0 auto}
+    .c{text-align:center} .s{border-top:1px dashed #999;margin:9px 0}
+    .r{display:flex;justify-content:space-between;margin:3px 0}
+    .brand{font-family:Arial,sans-serif;font-size:17px;font-weight:800;color:${ORG};letter-spacing:.5px}
+    .sub{font-size:10px;color:#6b7280;margin-top:2px}
+    .num{font-size:14px;font-weight:700;margin:6px 0 2px;font-family:Arial,sans-serif}
+    .art-nom{margin-bottom:1px;color:#374151}
+    .art-calc{color:#6b7280;font-size:11px}
+    .tot{font-size:14px;font-weight:800;font-family:Arial,sans-serif}
+    .footer-txt{font-size:10px;color:#6b7280;font-style:italic;margin-top:2px}
+    @media print{body{padding:0}}
+  </style></head><body>
+  <div class="c">
+    ${m.logo?`<img src="${m.logo}" style="height:48px;object-fit:contain;margin-bottom:6px"><br>`:''}
+    <div class="brand">${m.nom||'Ya Matériels'}</div>
+    ${m.adresse?`<div class="sub">${m.adresse}</div>`:''}
+    ${m.telephone?`<div class="sub">Tél : ${m.telephone}</div>`:''}
+    ${m.rccm?`<div class="sub">RCCM : ${m.rccm}</div>`:''}
+    ${m.nif?`<div class="sub">NIF : ${m.nif}</div>`:''}
+    <div class="s"></div>
+    <div class="num">REÇU N° ${res.numero}</div>
+    <div class="sub">${new Date().toLocaleString('fr-FR')}</div>
+  </div>
   <div class="s"></div>
-  ${lignes.map(i=>`<div>${i.nom}<div class="r"><span>${i.qty} × ${fmt(i.prix)}</span><span>${fmt(i.qty*i.prix)}</span></div></div>`).join('')}
+  ${lignes.map(i=>`<div style="margin:5px 0">
+    <div class="art-nom">${i.code?`<span style="color:#9ca3af">[${i.code}]</span> `:''}${i.nom}</div>
+    <div class="r art-calc"><span>${i.qty} × ${fmt(i.prix)} CFA</span><span style="font-weight:700">${fmt(i.qty*i.prix)} CFA</span></div>
+  </div>`).join('')}
   <div class="s"></div>
-  <div class="r"><strong>TOTAL</strong><strong>${fmt(total)}</strong></div>
-  <div class="r"><span>Reçu</span><span>${fmt(recu)}</span></div>
-  ${recu>total?`<div class="r"><span>Monnaie</span><span>${fmt(recu-total)}</span></div>`:''}
+  <div class="r tot"><span>TOTAL</span><span style="color:${ORG}">${fmt(total)} CFA</span></div>
+  <div class="r"><span>Réglé</span><span>${fmt(recu)} CFA</span></div>
+  ${recu>total?`<div class="r"><span>Monnaie</span><span>${fmt(recu-total)} CFA</span></div>`:''}
   <div class="r"><span>Mode</span><span>${mode}</span></div>
   <div class="s"></div>
-  <div class="c"><em>${m.recu_pied||'Merci pour votre achat !'}</em></div>
+  <div class="c footer-txt">${m.recu_pied||'Merci pour votre achat !'}</div>
+  <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
   w.print();
 }
 
-function printFacture(res, lignes, total, remise, mode, recu, client) {
+function printFacture(res, lignes, total, remise, mode, recu, client, dateStr=null, caissierNom=null) {
   const m = currentMagasin() || {};
-  const date = new Date().toLocaleDateString('fr-FR');
-  const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#1a56db';
+  const date = dateStr || new Date().toLocaleDateString('fr-FR');
+  const ORG = '#e07b39';
   const w = window.open('', '_blank', 'width=900,height=750');
+
+  const tauxTVA = (m.taux_tva != null ? m.taux_tva : 18);
+  const sousTotal = lignes.reduce((s,i) => s + i.qty * i.prix, 0);
+  const ht = total / (1 + tauxTVA / 100);
+  const tva = total - ht;
+
+  // Adresses pied de page (toutes les enseignes)
+  const footerAddr = [
+    m.adresse ? `<strong>${m.nom||'Ya Matériels'}</strong>, ${m.adresse}` : `<strong>${m.nom||'Ya Matériels'}</strong>`,
+    'Siège : ABIDJAN, Cocody - Rivera GOLF'
+  ].join(' | ');
+
   w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
   <title>Facture ${res.numero}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; font-size: 13px; color: #1f2937; background: #fff; padding: 32px; max-width: 800px; margin: 0 auto; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 3px solid ${primary}; }
-    .logo-block img { height: 70px; object-fit: contain; }
-    .logo-block h1 { font-size: 22px; font-weight: 800; color: ${primary}; margin-top: 6px; }
-    .logo-block p { font-size: 11px; color: #6b7280; }
-    .facture-title { text-align: right; }
-    .facture-title h2 { font-size: 28px; font-weight: 800; color: ${primary}; letter-spacing: 2px; }
-    .facture-title .num { font-size: 14px; color: #374151; margin-top: 4px; }
-    .facture-title .date { font-size: 12px; color: #6b7280; margin-top: 2px; }
-    .parties { display: flex; gap: 32px; margin-bottom: 28px; }
-    .partie { flex: 1; padding: 16px; border-radius: 8px; }
-    .partie.vendeur { background: #f9fafb; border-left: 4px solid ${primary}; }
-    .partie.acheteur { background: #eff6ff; border-left: 4px solid #93c5fd; }
-    .partie h4 { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #6b7280; margin-bottom: 8px; letter-spacing: 0.05em; }
-    .partie p { font-size: 13px; line-height: 1.7; }
-    .partie strong { font-size: 15px; color: #111827; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-    thead th { background: ${primary}; color: white; padding: 10px 12px; text-align: left; font-size: 12px; font-weight: 600; }
-    thead th:last-child, thead th:nth-child(3), thead th:nth-child(2) { text-align: right; }
-    tbody tr:nth-child(even) { background: #f9fafb; }
-    tbody td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
-    tbody td:last-child, tbody td:nth-child(3), tbody td:nth-child(2) { text-align: right; }
-    .totaux { width: 280px; margin-left: auto; margin-bottom: 24px; }
-    .totaux .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #e5e7eb; }
-    .totaux .row.total { font-size: 16px; font-weight: 800; color: ${primary}; border-bottom: 2px solid ${primary}; padding: 10px 0; }
-    .totaux .row.regle { color: #0e9f6e; font-weight: 600; }
-    .totaux .row.reste { color: #e02424; font-weight: 600; }
-    .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: flex-end; }
-    .footer .mention { font-size: 11px; color: #6b7280; max-width: 400px; line-height: 1.6; }
-    .footer .signature { text-align: center; }
-    .footer .signature .line { width: 200px; border-top: 1px solid #374151; padding-top: 8px; font-size: 12px; color: #374151; margin-top: 40px; }
-    .mode-pmt { display: inline-block; background: #d1fae5; color: #065f46; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
-    @media print { body { padding: 16px; } }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;font-size:13px;color:#1f2937;background:#fff;padding:40px;max-width:800px;margin:0 auto}
+
+    /* ── EN-TÊTE ── */
+    .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px}
+    .hd-logo img{height:70px;object-fit:contain}
+    .hd-logo .logo-txt{font-size:22px;font-weight:800;color:#1f2937;letter-spacing:.5px}
+    .hd-right{text-align:right}
+    .hd-right .co{font-size:15px;font-weight:800;color:#1f2937;letter-spacing:.5px}
+    .hd-right .sl{font-size:11px;font-weight:700;color:#1f2937;margin:3px 0;letter-spacing:.3px}
+    .hd-right .ct{font-size:11px;color:#6b7280}
+
+    /* ── TITRE ── */
+    .doc-ttl{text-align:right;margin-bottom:22px}
+    .doc-ttl h2{font-size:32px;font-weight:800;color:${ORG};letter-spacing:1px}
+
+    /* ── CLIENT ── */
+    .cli{font-size:14px;color:#1f2937;margin-bottom:18px;font-weight:500}
+
+    /* ── INFO ROW ── */
+    .info-row{display:flex;gap:48px;margin-bottom:26px}
+    .info-col label{font-size:12px;font-weight:700;display:block;margin-bottom:3px;color:#1f2937}
+    .info-col span{font-size:13px;color:#4b5563}
+
+    /* ── TABLEAU ── */
+    table{width:100%;border-collapse:collapse;margin-bottom:18px}
+    thead th{font-size:12px;font-weight:600;color:#6b7280;padding:9px 12px;border-bottom:1px solid #e5e7eb;text-align:left}
+    thead th:nth-child(2),thead th:nth-child(3),thead th:nth-child(4){text-align:right}
+    tbody tr{border-bottom:1px solid #f3f4f6}
+    tbody td{padding:10px 12px;font-size:13px}
+    tbody td:nth-child(2),tbody td:nth-child(3),tbody td:nth-child(4){text-align:right}
+    .tr-tot td{padding:12px;font-weight:800;color:${ORG};font-size:14px;border-top:1px solid #e5e7eb;border-bottom:none}
+
+    /* ── SOUS-TOTAUX (TVA) ── */
+    .sub-box{width:260px;margin-left:auto;margin-bottom:24px}
+    .sub-box .r{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid #f3f4f6;color:#4b5563}
+    .sub-box .r.regle{color:#059669;font-weight:600;font-size:13px}
+    .sub-box .r.reste{color:#dc2626;font-weight:600;font-size:13px}
+
+    /* ── PIED ── */
+    .footer{margin-top:48px;padding-top:12px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-end}
+    .footer .addrs{font-size:11px;color:#4b5563;line-height:1.8;max-width:560px}
+    .footer .pg{font-size:11px;color:#6b7280;white-space:nowrap}
+    @media print{body{padding:20px}}
   </style></head><body>
+
   <!-- EN-TÊTE -->
-  <div class="header">
-    <div class="logo-block">
-      ${m.logo ? `<img src="${m.logo}" alt="Logo">` : ''}
-      <h1>${m.nom || 'Ya Matériels'}</h1>
-      <p>${m.slogan || ''}</p>
+  <div class="hd">
+    <div class="hd-logo">
+      ${m.logo ? `<img src="${m.logo}" alt="Logo">` : `<div class="logo-txt">${m.nom||'Ya Matériels'}</div>`}
     </div>
-    <div class="facture-title">
-      <h2>FACTURE</h2>
-      <div class="num">N° ${res.numero}</div>
-      <div class="date">Date : ${date}</div>
-      <div class="date">Mode : <span class="mode-pmt">${mode}</span></div>
+    <div class="hd-right">
+      <div class="co">DICOREP INTER SARL</div>
+      <div class="sl">DISTRIBUTION – CONSTRUCTION – REPRÉSENTATION</div>
+      <div class="ct">${m.email||'dicorepservodoo@gmail.com'} | ${m.telephone||'+225 27 22 29 68 66'}</div>
     </div>
   </div>
 
-  <!-- VENDEUR / ACHETEUR -->
-  <div class="parties">
-    <div class="partie vendeur">
-      <h4>Vendeur</h4>
-      <p><strong>${m.nom || 'Ya Matériels'}</strong><br>
-      ${m.adresse ? m.adresse + '<br>' : ''}
-      ${m.telephone ? 'Tél : ' + m.telephone + '<br>' : ''}
-      ${m.email ? m.email + '<br>' : ''}
-      ${m.rccm ? 'RCCM : ' + m.rccm + '<br>' : ''}
-      ${m.nif ? 'NIF : ' + m.nif : ''}</p>
+  <!-- TITRE -->
+  <div class="doc-ttl"><h2>Facture # ${res.numero}</h2></div>
+
+  <!-- CLIENT -->
+  <div class="cli">${client ? client.nom : 'Client comptant'}</div>
+
+  <!-- DATE / VENDEUR -->
+  <div class="info-row">
+    <div class="info-col">
+      <label>Date de la vente</label>
+      <span>${date}</span>
     </div>
-    <div class="partie acheteur">
-      <h4>Client / Acheteur</h4>
-      <p><strong>${client ? client.nom : 'Client comptant'}</strong><br>
-      ${client?.telephone ? 'Tél : ' + client.telephone + '<br>' : ''}
-      ${client?.email ? client.email + '<br>' : ''}
-      ${client?.adresse ? client.adresse : ''}</p>
+    <div class="info-col">
+      <label>Vendeur</label>
+      <span>${m.nom||'Ya Matériels'}${caissierNom ? ' | ' + caissierNom : ' | Comptoir'}</span>
+    </div>
+    ${client?.telephone ? `<div class="info-col"><label>Tél. client</label><span>${client.telephone}</span></div>` : ''}
+    <div class="info-col">
+      <label>Mode de règlement</label>
+      <span>${mode}</span>
     </div>
   </div>
 
-  <!-- TABLEAU DES ARTICLES -->
+  <!-- TABLEAU ARTICLES -->
   <table>
-    <thead>
-      <tr>
-        <th style="width:40px">N°</th>
-        <th>Désignation</th>
-        <th style="width:80px">Qté</th>
-        <th style="width:120px">Prix unit.</th>
-        <th style="width:130px">Montant</th>
-      </tr>
-    </thead>
+    <thead><tr>
+      <th>Description</th>
+      <th>Quantité</th>
+      <th>Prix unitaire</th>
+      <th>Montant</th>
+    </tr></thead>
     <tbody>
-      ${lignes.map((it,i) => `
-        <tr>
-          <td>${i+1}</td>
-          <td>${it.nom}</td>
-          <td style="text-align:right">${it.qty}</td>
-          <td style="text-align:right">${fmt(it.prix)}</td>
-          <td style="text-align:right"><strong>${fmt(it.qty*it.prix)}</strong></td>
-        </tr>`).join('')}
+      ${lignes.map(it => `<tr>
+        <td>${it.code ? `<span style="color:#9ca3af">[${it.code}]</span> ` : ''}${it.nom}</td>
+        <td>${it.qty} Unité(s)</td>
+        <td>${fmt(it.prix)} CFA</td>
+        <td><strong>${fmt(it.qty * it.prix)} CFA</strong></td>
+      </tr>`).join('')}
+      ${remise > 0 ? `<tr><td colspan="3" style="text-align:right;color:#6b7280;font-size:12px">Remise</td><td style="color:#dc2626">– ${fmt(remise)} CFA</td></tr>` : ''}
+      <tr class="tr-tot">
+        <td colspan="3">Total</td>
+        <td>${fmt(total)} CFA</td>
+      </tr>
     </tbody>
   </table>
 
-  <!-- TOTAUX avec TVA 18% -->
-  ${(()=>{
-    const sousTotal = lignes.reduce((s,i)=>s+i.qty*i.prix,0);
-    const tauxTVA = (m.taux_tva!=null ? m.taux_tva : 18);
-    // total TTC = sousTotal - remise ; HT = TTC / (1+tva) ; TVA = TTC - HT
-    const ht = total / (1 + tauxTVA/100);
-    const tva = total - ht;
-    return `<div class="totaux">
-      <div class="row"><span>Sous-total</span><span>${fmt(sousTotal)}</span></div>
-      ${remise>0 ? `<div class="row"><span>Remise</span><span>- ${fmt(remise)}</span></div>` : ''}
-      <div class="row"><span>Montant HT</span><span>${fmt(ht)}</span></div>
-      <div class="row"><span>TVA (${tauxTVA}%)</span><span>${fmt(tva)}</span></div>
-      <div class="row total"><span>TOTAL TTC</span><span>${fmt(total)}</span></div>
-      <div class="row regle"><span>✅ Réglé</span><span>${fmt(Math.min(recu,total))}</span></div>
-      ${total > recu ? `<div class="row reste"><span>⚠️ Reste à payer</span><span>${fmt(total-recu)}</span></div>` : ''}
-    </div>`;
-  })()}
+  <!-- SOUS-TOTAUX TVA + RÈGLEMENT -->
+  <div class="sub-box">
+    <div class="r"><span>Montant HT</span><span>${fmt(ht)} CFA</span></div>
+    <div class="r"><span>TVA (${tauxTVA} %)</span><span>${fmt(tva)} CFA</span></div>
+    <div class="r regle"><span>Réglé</span><span>${fmt(Math.min(recu, total))} CFA</span></div>
+    ${total > recu ? `<div class="r reste"><span>Reste à payer</span><span>${fmt(total - recu)} CFA</span></div>` : ''}
+  </div>
 
-  <!-- PIED DE PAGE -->
+  <!-- PIED -->
   <div class="footer">
-    <div class="mention">
-      <strong>Conditions :</strong> Les marchandises vendues ne sont ni reprises ni échangées.<br>
-      ${m.recu_pied || 'Merci pour votre confiance.'}
-    </div>
-    <div class="signature">
-      <div class="line">Signature & Cachet</div>
-    </div>
+    <div class="addrs">${footerAddr}</div>
+    <div class="pg">Page 1 / 1</div>
   </div>
 
   <script>window.onload=()=>window.print();<\/script>
@@ -1715,14 +1744,15 @@ async function imprimerFactureVente(id) {
   const v = await api(`/ventes/${id}`);
   const m = currentMagasin() || {};
   // Construire lignes depuis les détails de la vente
-  const lignes = v.lignes.map(l => ({nom:l.produit_nom, qty:l.quantite, prix:l.prix_unitaire}));
+  const lignes = v.lignes.map(l => ({nom:l.produit_nom, code:l.produit_code||'', qty:l.quantite, prix:l.prix_unitaire}));
   // Récupérer infos client si disponible
   let client = null;
   if(v.client_id) {
     try { client = await api(`/clients/${v.client_id}`); } catch(e){}
   }
   const res = {numero: v.numero};
-  printFacture(res, lignes, v.total, v.remise, v.mode_paiement, v.montant_paye, client);
+  const dateVente = v.created_at ? new Date(v.created_at).toLocaleDateString('fr-FR') : null;
+  printFacture(res, lignes, v.total, v.remise, v.mode_paiement, v.montant_paye, client, dateVente, v.caissier_nom);
 }
 
 async function annulerVente(id,num){
