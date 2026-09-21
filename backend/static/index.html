@@ -1613,9 +1613,11 @@ function printFacture(res, lignes, total, remise, mode, recu, client, dateStr=nu
       ${m.logo ? `<img src="${m.logo}" alt="Logo">` : `<div class="logo-txt">${m.nom||'Ya Matériels'}</div>`}
     </div>
     <div class="hd-right">
-      <div class="co">DICOREP INTER SARL</div>
-      <div class="sl">DISTRIBUTION – CONSTRUCTION – REPRÉSENTATION</div>
-      <div class="ct">${m.email||'dicorepservodoo@gmail.com'} | ${m.telephone||'+225 27 22 29 68 66'}</div>
+      <div class="co">${m.nom||'Ya Matériels'}</div>
+      ${m.slogan ? `<div class="sl">${m.slogan}</div>` : ''}
+      <div class="ct">${[m.email, m.telephone].filter(Boolean).join(' | ')}</div>
+      ${m.rccm ? `<div class="ct">RCCM : ${m.rccm}</div>` : ''}
+      ${m.nif  ? `<div class="ct">NIF : ${m.nif}</div>`   : ''}
     </div>
   </div>
 
@@ -1671,6 +1673,14 @@ function printFacture(res, lignes, total, remise, mode, recu, client, dateStr=nu
     <div class="r"><span>TVA (${tauxTVA} %)</span><span>${fmt(tva)} CFA</span></div>
     <div class="r regle"><span>Réglé</span><span>${fmt(Math.min(recu, total))} CFA</span></div>
     ${total > recu ? `<div class="r reste"><span>Reste à payer</span><span>${fmt(total - recu)} CFA</span></div>` : ''}
+  </div>
+
+  <!-- CONDITIONS -->
+  <div style="margin-top:28px;padding:12px 16px;background:#f9fafb;border-radius:6px;font-size:11px;color:#6b7280;line-height:1.7">
+    <strong style="color:#374151">Conditions :</strong>
+    Les marchandises vendues ne sont ni reprises ni échangées sauf accord préalable.
+    En cas de litige, seul le tribunal compétent de Divo est compétent.<br>
+    ${m.recu_pied ? `<em>${m.recu_pied}</em>` : '<em>Merci pour votre confiance.</em>'}
   </div>
 
   <!-- PIED -->
