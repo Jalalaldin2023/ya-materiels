@@ -375,11 +375,11 @@ const fmtD = s => s ? new Date(s).toLocaleDateString('fr-FR') : '-';
 function currentMagasin() { return allMagasins.find(m => m.id === currentMagasinId) || null; }
 // ── Permissions par rôle (défauts) ───────────────────────────────────────────
 const ROLE_PERMS_DEFAULT = {
-  admin:           ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs','historique_ventes'],
-  dg:              ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture'],
-  gerant:          ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','historique_ventes'],
+  admin:           ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs','historique_ventes','prix_special'],
+  dg:              ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','prix_special'],
+  gerant:          ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','historique_ventes','prix_special'],
   gestionnaire:    ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs'],
-  resp_commercial: ['pos','ventes','clients','devis','facture','analyse'],
+  resp_commercial: ['pos','ventes','clients','devis','facture','analyse','prix_special'],
   comptable:       ['ventes','clients','fournisseurs','achats','depenses','comptabilite','analyse'],
   caissier:        ['pos','ventes','clients','devis','facture'],
   commercial:      ['pos','ventes','clients','devis'],
@@ -1151,8 +1151,15 @@ async function pagePos(){
             <span>Sous-total</span><strong id="pan-sub">-</strong>
           </div>
           <div style="display:flex;gap:7px;align-items:center;margin-bottom:7px">
-            <label style="font-size:12px;white-space:nowrap">Remise:</label>
+            <label style="font-size:12px;white-space:nowrap">Remise globale:</label>
             <input type="number" id="remise" value="0" min="0" style="width:75px" oninput="updatePanTotal()">
+          </div>
+          <div id="remise-globale-pct-row" style="display:none;gap:7px;align-items:center;margin-bottom:7px">
+            <label style="font-size:12px;white-space:nowrap;color:#92400e">Remise % globale:</label>
+            <input type="number" id="remise-pct-globale" value="0" min="0" max="100" step="1"
+              style="width:55px;border:1.5px solid #fcd34d;border-radius:5px;padding:4px 6px;font-size:12px;color:#92400e"
+              oninput="appliquerRemiseGlobale(this.value)">
+            <span style="font-size:11px;color:#92400e">% sur tous les articles</span>
           </div>
           <div style="display:flex;justify-content:space-between;margin-bottom:11px;font-size:16px;font-weight:700">
             <span>TOTAL</span><span id="pan-total">-</span>
@@ -1165,6 +1172,11 @@ async function pagePos(){
     api(`/produits?magasin_id=${currentMagasinId}`),
     api(`/produits/categories?magasin_id=${currentMagasinId}`)
   ]);
+  // Afficher la ligne remise % pour les responsables
+  if(hasPerm('prix_special')){
+    const row=document.getElementById('remise-globale-pct-row');
+    if(row) row.style.display='flex';
+  }
   buildCatTabs();
   filterPos();
 }
@@ -1262,7 +1274,7 @@ function addPanier(id){
   const prix=getPrixProduit(p);
   const ex=panier.find(x=>x.id===id);
   if(ex){if(ex.qty>=p.quantite){toast('Stock insuffisant !','danger');return;}ex.qty++;}
-  else panier.push({id,nom:p.nom,code:p.code||'',prix,pv:pvNiveau,qty:1,max:p.quantite,
+  else panier.push({id,nom:p.nom,code:p.code||'',prix,prix_original:prix,remise_pct:0,pv:pvNiveau,qty:1,max:p.quantite,
     pv1:p.prix_vente, pv2:p.prix_vente2||p.prix_vente, pv3:p.prix_vente3||p.prix_vente});
   renderPanier();
 }
@@ -1270,22 +1282,70 @@ function addPanier(id){
 function renderPanier(){
   const pvLabels=['','PV1','PV2','PV3'];
   const pvClasses=['','pv1-badge','pv2-badge','pv3-badge'];
-  document.getElementById('panier-items').innerHTML=panier.map((it,i)=>`
-    <div class="panier-item">
-      <div class="nom" style="flex:1">
-        ${it.nom}
-        <span class="pv-badge ${pvClasses[it.pv]}">${pvLabels[it.pv]}</span>
+  const canEditPrix = hasPerm('prix_special');
+  document.getElementById('panier-items').innerHTML=panier.map((it,i)=>{
+    const modifie = it.prix !== it.prix_original;
+    const remisePct = it.remise_pct||0;
+    return `<div class="panier-item" style="flex-direction:column;align-items:stretch;gap:4px">
+      <div style="display:flex;align-items:center;gap:7px">
+        <div class="nom" style="flex:1">
+          ${it.nom}
+          <span class="pv-badge ${pvClasses[it.pv]}">${pvLabels[it.pv]}</span>
+          ${modifie?`<span class="pv-badge" style="background:#fef3c7;color:#92400e;margin-left:2px">💰 Spécial</span>`:''}
+        </div>
+        <div class="qty-ctrl">
+          <button onclick="chgQ(${i},-1)">−</button>
+          <span class="qty">${it.qty}</span>
+          <button onclick="chgQ(${i},1)">+</button>
+        </div>
+        <div class="line-total">${fmt(it.qty*it.prix)}</div>
+        <button class="btn-icon" onclick="panier.splice(${i},1);renderPanier()">✕</button>
       </div>
-      <div class="qty-ctrl">
-        <button onclick="chgQ(${i},-1)">−</button>
-        <span class="qty">${it.qty}</span>
-        <button onclick="chgQ(${i},1)">+</button>
-      </div>
-      <div class="line-total">${fmt(it.qty*it.prix)}</div>
-      <button class="btn-icon" onclick="panier.splice(${i},1);renderPanier()">✕</button>
-    </div>`).join('')||'<p class="text-muted" style="padding:16px;text-align:center">Panier vide</p>';
+      ${canEditPrix?`
+      <div style="display:flex;align-items:center;gap:6px;padding:4px 4px 2px;background:#fffbeb;border-radius:5px;border:1px solid #fcd34d">
+        <span style="font-size:10px;color:#92400e;font-weight:600;white-space:nowrap">💰 Prix:</span>
+        <input type="number" value="${it.prix}" min="0" step="1"
+          style="width:80px;padding:3px 5px;border:1px solid #fcd34d;border-radius:4px;font-size:12px;font-weight:700;color:#92400e"
+          onchange="panierSetPrix(${i},this.value)" title="Prix unitaire">
+        <span style="font-size:10px;color:#92400e;font-weight:600;white-space:nowrap">Remise%:</span>
+        <input type="number" value="${remisePct}" min="0" max="100" step="1"
+          style="width:52px;padding:3px 5px;border:1px solid #fcd34d;border-radius:4px;font-size:12px;color:#92400e"
+          onchange="panierSetRemise(${i},this.value)" title="Remise en %">
+        ${modifie?`<span style="font-size:10px;color:#9ca3af;text-decoration:line-through">${fmt(it.prix_original)}</span>`:''}
+        <button onclick="panierResetPrix(${i})" title="Réinitialiser" style="padding:2px 6px;border:1px solid #fcd34d;border-radius:4px;font-size:10px;cursor:pointer;background:#fff;color:#92400e">↺</button>
+      </div>`:''}
+    </div>`;
+  }).join('')||'<p class="text-muted" style="padding:16px;text-align:center">Panier vide</p>';
   updatePanTotal();
 }
+
+function panierSetPrix(i, val){
+  const v = parseFloat(val)||0;
+  panier[i].prix = v;
+  panier[i].remise_pct = panier[i].prix_original > 0
+    ? Math.round((1 - v/panier[i].prix_original)*100) : 0;
+  renderPanier();
+}
+function panierSetRemise(i, pct){
+  const p = parseFloat(pct)||0;
+  panier[i].remise_pct = Math.min(100, Math.max(0, p));
+  panier[i].prix = Math.round(panier[i].prix_original * (1 - panier[i].remise_pct/100));
+  renderPanier();
+}
+function panierResetPrix(i){
+  panier[i].prix = panier[i].prix_original;
+  panier[i].remise_pct = 0;
+  renderPanier();
+}
+function appliquerRemiseGlobale(pct){
+  const p = Math.min(100, Math.max(0, parseFloat(pct)||0));
+  panier.forEach(it=>{
+    it.remise_pct = p;
+    it.prix = Math.round(it.prix_original * (1 - p/100));
+  });
+  renderPanier();
+}
+
 function chgQ(i,d){const it=panier[i],nq=it.qty+d;if(nq<=0){panier.splice(i,1);renderPanier();return;}if(nq>it.max){toast('Stock insuffisant !','danger');return;}it.qty=nq;renderPanier();}
 function clearPanier(){panier=[];renderPanier();}
 function updatePanTotal(){
@@ -3946,11 +4006,12 @@ async function saveMagasin(id){
 
 // ── UTILISATEURS ──────────────────────────────────────────────────────────────
 const ALL_PERMS = [
-  {key:'pos',         label:'🛒 Point de vente',      group:'Ventes'},
-  {key:'ventes',      label:'📋 Voir les ventes',      group:'Ventes'},
-  {key:'facture',     label:'🧾 Émettre des factures', group:'Ventes'},
-  {key:'clients',     label:'👥 Clients',              group:'Ventes'},
-  {key:'devis',       label:'📝 Devis',                group:'Ventes'},
+  {key:'pos',          label:'🛒 Point de vente',         group:'Ventes'},
+  {key:'ventes',       label:'📋 Voir les ventes',         group:'Ventes'},
+  {key:'facture',      label:'🧾 Émettre des factures',    group:'Ventes'},
+  {key:'clients',      label:'👥 Clients',                 group:'Ventes'},
+  {key:'devis',        label:'📝 Devis',                   group:'Ventes'},
+  {key:'prix_special', label:'💰 Modifier prix / remises', group:'Ventes'},
   {key:'produits',    label:'📦 Produits',             group:'Stock'},
   {key:'stock',       label:'🏪 Stock',                group:'Stock'},
   {key:'achats',      label:'🚚 Achats / Réception',   group:'Stock'},
