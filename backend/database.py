@@ -199,6 +199,7 @@ def init_db():
         ("utilisateurs", "permissions",  "ALTER TABLE utilisateurs ADD COLUMN permissions TEXT DEFAULT ''"),
         ("magasins",     "photo",           "ALTER TABLE magasins ADD COLUMN photo TEXT DEFAULT ''"),
         ("utilisateurs", "password_changed","ALTER TABLE utilisateurs ADD COLUMN password_changed INTEGER DEFAULT 1"),
+        ("clients",      "type_compte",     "ALTER TABLE clients ADD COLUMN type_compte TEXT DEFAULT '411'"),
     ]
     for table, col, sql in migrations:
         cols = [r[1] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()]

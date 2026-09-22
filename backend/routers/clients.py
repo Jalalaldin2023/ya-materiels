@@ -12,16 +12,20 @@ class ClientIn(BaseModel):
     email: Optional[str] = None
     adresse: Optional[str] = None
     magasin_id: int
+    type_compte: str = "411"
 
 
 @router.get("")
-def list_clients(magasin_id: int, search: str = ""):
+def list_clients(magasin_id: int, search: str = "", type_compte: str = ""):
     db = get_db()
     q = "SELECT * FROM clients WHERE magasin_id=?"
     params = [magasin_id]
     if search:
         q += " AND (nom LIKE ? OR telephone LIKE ?)"
         params += [f"%{search}%", f"%{search}%"]
+    if type_compte:
+        q += " AND type_compte=?"
+        params.append(type_compte)
     q += " ORDER BY nom"
     rows = db.execute(q, params).fetchall()
     db.close()
@@ -43,8 +47,8 @@ def get_client(cid: int):
 def create_client(c: ClientIn):
     db = get_db()
     cur = db.execute(
-        "INSERT INTO clients (nom,telephone,email,adresse,magasin_id) VALUES (?,?,?,?,?)",
-        (c.nom, c.telephone, c.email, c.adresse, c.magasin_id)
+        "INSERT INTO clients (nom,telephone,email,adresse,magasin_id,type_compte) VALUES (?,?,?,?,?,?)",
+        (c.nom, c.telephone, c.email, c.adresse, c.magasin_id, c.type_compte)
     )
     db.commit(); db.close()
     return {"id": cur.lastrowid, "message": "Client créé"}
@@ -53,7 +57,8 @@ def create_client(c: ClientIn):
 @router.put("/{cid}")
 def update_client(cid: int, c: ClientIn):
     db = get_db()
-    db.execute("UPDATE clients SET nom=?,telephone=?,email=?,adresse=? WHERE id=?", (c.nom, c.telephone, c.email, c.adresse, cid))
+    db.execute("UPDATE clients SET nom=?,telephone=?,email=?,adresse=?,type_compte=? WHERE id=?",
+               (c.nom, c.telephone, c.email, c.adresse, c.type_compte, cid))
     db.commit(); db.close()
     return {"message": "Client mis à jour"}
 

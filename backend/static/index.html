@@ -2791,32 +2791,79 @@ async function voirAchat(id) {
 }
 
 // ── CLIENTS ───────────────────────────────────────────────────────────────────
+const CLIENT_TYPES = [
+  {code:'411',  label:'411 – Clients',                    desc:'Créances issues des ventes facturées à crédit',           color:'badge-primary'},
+  {code:'413',  label:'413 – Effets à recevoir',           desc:'Créances matérialisées par un effet de commerce',          color:'badge-info'},
+  {code:'416',  label:'416 – Clients douteux / litigieux', desc:'Recouvrement compromis, litige ou redressement',           color:'badge-warning'},
+  {code:'4181', label:'4181 – Factures à établir',         desc:'Produits acquis non encore facturés à la clôture',         color:'badge-purple'},
+  {code:'4191', label:'4191 – Acomptes reçus',             desc:'Avance perçue avant livraison ou prestation',              color:'badge-orange'},
+];
+function clientTypeDef(code){ return CLIENT_TYPES.find(t=>t.code===code)||CLIENT_TYPES[0]; }
+
 async function pageClients(){if(!currentMagasinId){noStore();return;}renderClients();}
-async function renderClients(s=''){
-  const data=await api(`/clients?magasin_id=${currentMagasinId}&search=${encodeURIComponent(s)}`);
+async function renderClients(s='',tc=''){
+  const params=new URLSearchParams({magasin_id:currentMagasinId});
+  if(s) params.set('search',s);
+  if(tc) params.set('type_compte',tc);
+  const data=await api(`/clients?${params}`);
+  // Comptage par type
+  const counts={};
+  data.forEach(c=>{const k=c.type_compte||'411';counts[k]=(counts[k]||0)+1;});
   document.getElementById('content').innerHTML=`
     <div class="card">
       <div class="section-header"><h3>Clients (${data.length})</h3>
-        <button class="btn btn-primary" onclick="modalClient()">+ Nouveau</button>
+        <button class="btn btn-primary" onclick="modalClient()">+ Nouveau client</button>
       </div>
-      <div class="search-bar"><input type="text" placeholder="Nom ou téléphone..." value="${s}" oninput="renderClients(this.value)"></div>
+      <!-- Filtres par type de compte -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <button onclick="renderClients(document.getElementById('cl-s').value,'')"
+          class="btn btn-sm ${!tc?'btn-primary':'btn-outline'}">Tous (${data.length||0})</button>
+        ${CLIENT_TYPES.map(t=>{
+          const n=counts[t.code]||0;
+          return `<button onclick="renderClients(document.getElementById('cl-s').value,'${t.code}')"
+            class="btn btn-sm ${tc===t.code?'btn-primary':'btn-outline'}" title="${t.desc}">
+            ${t.label.split('–')[0].trim()} <span style="opacity:.7">(${n})</span>
+          </button>`;
+        }).join('')}
+      </div>
+      <div class="search-bar">
+        <input type="text" id="cl-s" placeholder="Nom ou téléphone..." value="${s}"
+          oninput="renderClients(this.value,'${tc}')">
+      </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Nom</th><th>Téléphone</th><th>Solde dû</th><th></th></tr></thead>
-        <tbody>${data.map(c=>`
-          <tr><td><strong>${c.nom}</strong></td><td>${c.telephone||'-'}</td>
-          <td style="color:${c.solde>0?'var(--danger)':'inherit'};font-weight:${c.solde>0?700:400}">${fmt(c.solde)}</td>
-          <td><button class="btn-icon" onclick="voirClient(${c.id})">👁</button>
-              <button class="btn-icon" onclick="modalClient(${c.id})">✏️</button>
-              <button class="btn-icon" onclick="delClient(${c.id},'${c.nom.replace(/'/g,"\\'")}')">🗑</button></td>
-          </tr>`).join('')||'<tr><td colspan="4" style="text-align:center;padding:16px" class="text-muted">Aucun client</td></tr>'}
+        <thead><tr><th>Nom</th><th>Type de compte</th><th>Téléphone</th><th>Solde dû</th><th></th></tr></thead>
+        <tbody>${data.map(c=>{
+          const td=clientTypeDef(c.type_compte||'411');
+          return `<tr>
+            <td><strong>${c.nom}</strong></td>
+            <td><span class="badge ${td.color}" title="${td.desc}">${td.label}</span></td>
+            <td>${c.telephone||'-'}</td>
+            <td style="color:${c.solde>0?'var(--danger)':'inherit'};font-weight:${c.solde>0?700:400}">${fmt(c.solde)}</td>
+            <td>
+              <button class="btn-icon" title="Voir" onclick="voirClient(${c.id})">👁</button>
+              <button class="btn-icon" title="Modifier" onclick="modalClient(${c.id})">✏️</button>
+              <button class="btn-icon" title="Supprimer" onclick="delClient(${c.id},'${c.nom.replace(/'/g,"\\'")}')">🗑</button>
+            </td>
+          </tr>`;
+        }).join('')||'<tr><td colspan="5" style="text-align:center;padding:16px" class="text-muted">Aucun client</td></tr>'}
         </tbody>
       </table></div>
     </div>`;}
+
 async function modalClient(id=null){
-  let c={nom:'',telephone:'',email:'',adresse:''};
+  let c={nom:'',telephone:'',email:'',adresse:'',type_compte:'411'};
   if(id){const d=await api(`/clients/${id}`);c=d;}
-  showModal(`<div class="modal"><div class="modal-header"><h3>${id?'Modifier':'Nouveau'} client</h3><button class="btn-icon" onclick="closeModal()">✕</button></div>
+  showModal(`<div class="modal modal-lg"><div class="modal-header"><h3>${id?'Modifier':'Nouveau'} client</h3><button class="btn-icon" onclick="closeModal()">✕</button></div>
   <div class="modal-body">
+    <div class="form-group">
+      <label>Type de compte *</label>
+      <select id="c_tc" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px" onchange="updateTypeDesc()">
+        ${CLIENT_TYPES.map(t=>`<option value="${t.code}" ${c.type_compte===t.code?'selected':''}>${t.label}</option>`).join('')}
+      </select>
+      <div id="c_tc_desc" style="margin-top:5px;font-size:11px;color:var(--text-muted);padding:6px 10px;background:#f9fafb;border-radius:5px">
+        ${clientTypeDef(c.type_compte||'411').desc}
+      </div>
+    </div>
     <div class="form-group"><label>Nom *</label><input id="c_n" value="${c.nom}"></div>
     <div class="form-row">
       <div class="form-group"><label>Téléphone</label><input id="c_t" value="${c.telephone||''}"></div>
@@ -2828,16 +2875,37 @@ async function modalClient(id=null){
     <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
     <button class="btn btn-primary" onclick="saveClient(${id||'null'})">💾 Enregistrer</button>
   </div></div>`);}
+
+function updateTypeDesc(){
+  const v=document.getElementById('c_tc')?.value;
+  const el=document.getElementById('c_tc_desc');
+  if(el&&v) el.textContent=clientTypeDef(v).desc;
+}
+
 async function saveClient(id){
-  const p={nom:document.getElementById('c_n').value,telephone:document.getElementById('c_t').value,
-    email:document.getElementById('c_e').value,adresse:document.getElementById('c_a').value,magasin_id:currentMagasinId};
+  const p={nom:document.getElementById('c_n').value,
+    telephone:document.getElementById('c_t').value,
+    email:document.getElementById('c_e').value,
+    adresse:document.getElementById('c_a').value,
+    type_compte:document.getElementById('c_tc').value,
+    magasin_id:currentMagasinId};
   if(!p.nom){toast('Nom requis !','danger');return;}
-  await api(id?`/clients/${id}`:'/clients',{method:id?'PUT':'POST',body:p}); toast(id?'Mis à jour':'Créé'); closeModal(); renderClients();}
+  await api(id?`/clients/${id}`:'/clients',{method:id?'PUT':'POST',body:p});
+  toast(id?'Mis à jour':'Client créé'); closeModal(); renderClients();}
+
 async function voirClient(id){
   const c=await api(`/clients/${id}`);
+  const td=clientTypeDef(c.type_compte||'411');
   showModal(`<div class="modal modal-lg"><div class="modal-header"><h3>${c.nom}</h3><button class="btn-icon" onclick="closeModal()">✕</button></div>
   <div class="modal-body">
-    <div class="form-row"><div><strong>Tél:</strong> ${c.telephone||'-'}</div><div><strong>Solde:</strong> <span style="color:${c.solde>0?'var(--danger)':'var(--success)'};font-weight:700">${fmt(c.solde)}</span></div></div>
+    <div class="form-row" style="gap:16px;flex-wrap:wrap">
+      <div>
+        <div style="margin-bottom:4px"><span class="badge ${td.color}">${td.label}</span></div>
+        <div style="font-size:11px;color:var(--text-muted)">${td.desc}</div>
+      </div>
+      <div><strong>Tél:</strong> ${c.telephone||'-'}<br><strong>Email:</strong> ${c.email||'-'}</div>
+      <div><strong>Solde dû:</strong> <span style="color:${c.solde>0?'var(--danger)':'var(--success)'};font-weight:700">${fmt(c.solde)}</span></div>
+    </div>
     <div class="separator"></div>
     <h4 style="margin-bottom:7px">Dernières ventes</h4>
     <table><thead><tr><th>N°</th><th>Total</th><th>Statut</th><th>Date</th></tr></thead>
@@ -2845,7 +2913,11 @@ async function voirClient(id){
     <td><span class="badge ${v.statut==='payee'?'badge-success':'badge-warning'}">${v.statut}</span></td>
     <td>${fmtDT(v.created_at)}</td></tr>`).join('')||'<tr><td colspan="4" class="text-muted">Aucune vente</td></tr>'}</tbody></table>
   </div>
-  <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Fermer</button></div></div>`);}
+  <div class="modal-footer">
+    <button class="btn btn-outline" onclick="closeModal()">Fermer</button>
+    <button class="btn btn-outline" onclick="modalClient(${c.id});closeModal()">✏️ Modifier</button>
+  </div></div>`);}
+
 async function delClient(id,n){if(!confirm(`Supprimer "${n}" ?`))return;await api(`/clients/${id}`,{method:'DELETE'});toast('Supprimé');renderClients();}
 
 // ── FOURNISSEURS ──────────────────────────────────────────────────────────────
