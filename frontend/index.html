@@ -139,6 +139,7 @@ tr:hover td{background:#f9fafb}
 .badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500}
 .badge-success{background:#d1fae5;color:#065f46}.badge-warning{background:#fef3c7;color:#92400e}
 .badge-danger{background:#fee2e2;color:#991b1b}.badge-info{background:#dbeafe;color:#1e40af}
+.badge-secondary{background:#f3f4f6;color:#6b7280}.badge-primary{background:#eff6ff;color:#1d4ed8}
 .badge-purple{background:#ede9fe;color:#5b21b6}.badge-gray{background:#f3f4f6;color:#374151}
 .badge-orange{background:#ffedd5;color:#9a3412}.badge-teal{background:#ccfbf1;color:#0f766e}.badge-pink{background:#fce7f3;color:#9d174d}
 
@@ -313,6 +314,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
       <a onclick="showPage('achats')" data-page="achats" data-perm="achats" class="need-store"><span class="icon">🚚</span> Achats</a>
       <div class="nav-sep">CLIENTS</div>
       <a onclick="showPage('clients')" data-page="clients" data-perm="clients" class="need-store"><span class="icon">👥</span> Clients</a>
+      <a onclick="showPage('devis')" data-page="devis" data-perm="devis" class="need-store"><span class="icon">📝</span> Devis</a>
       <a onclick="showPage('fournisseurs')" data-page="fournisseurs" data-perm="fournisseurs" class="need-store"><span class="icon">🏭</span> Fournisseurs</a>
       <div class="nav-sep nav-finances-sep">FINANCES</div>
       <a onclick="showPage('depenses')" data-page="depenses" data-perm="depenses" class="need-store"><span class="icon">💸</span> Dépenses</a>
@@ -373,14 +375,14 @@ const fmtD = s => s ? new Date(s).toLocaleDateString('fr-FR') : '-';
 function currentMagasin() { return allMagasins.find(m => m.id === currentMagasinId) || null; }
 // ── Permissions par rôle (défauts) ───────────────────────────────────────────
 const ROLE_PERMS_DEFAULT = {
-  admin:           ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs','historique_ventes'],
-  dg:              ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture'],
-  gerant:          ['pos','ventes','produits','stock','achats','clients','fournisseurs','depenses','comptabilite','analyse','facture','historique_ventes'],
-  gestionnaire:    ['pos','ventes','produits','stock','achats','clients','fournisseurs'],
-  resp_commercial: ['pos','ventes','clients','facture','analyse'],
+  admin:           ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs','historique_ventes'],
+  dg:              ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture'],
+  gerant:          ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','historique_ventes'],
+  gestionnaire:    ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs'],
+  resp_commercial: ['pos','ventes','clients','devis','facture','analyse'],
   comptable:       ['ventes','clients','fournisseurs','achats','depenses','comptabilite','analyse'],
-  caissier:        ['pos','ventes','clients','facture'],
-  commercial:      ['pos','ventes','clients'],
+  caissier:        ['pos','ventes','clients','devis','facture'],
+  commercial:      ['pos','ventes','clients','devis'],
 };
 
 function hasPerm(key) {
@@ -865,7 +867,7 @@ function applyRoleNav() {
 const pageTitles = {
   dashboard:'Tableau de bord', pos:'Point de vente', ventes:'Ventes',
   produits:'Produits', stock:'Gestion du stock', achats:'Achats',
-  clients:'Clients', fournisseurs:'Fournisseurs', depenses:'Dépenses',
+  clients:'Clients', devis:'Devis', fournisseurs:'Fournisseurs', depenses:'Dépenses',
   comptabilite:'Comptabilité', magasins:'Paramètres des magasins', utilisateurs:'Utilisateurs',
   analyse:'Analyse & Aide à la décision'
 };
@@ -4204,11 +4206,333 @@ function switchTab(id,btn){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById(id)?.classList.add('active'); btn.classList.add('active');}
 
+// ── DEVIS ─────────────────────────────────────────────────────────────────────
+async function pageDevis(){if(!currentMagasinId){noStore();return;}renderDevis();}
+
+let devisPanier=[];
+let devisProds=[];
+
+async function renderDevis(s='',statut=''){
+  const params=new URLSearchParams({magasin_id:currentMagasinId});
+  if(s) params.set('search',s);
+  if(statut) params.set('statut',statut);
+  const data=await api(`/devis?${params}`);
+  const statutOpts=['','brouillon','envoye','accepte','refuse','expire','converti'];
+  const statutLabels={brouillon:'Brouillon',envoye:'Envoyé',accepte:'Accepté',refuse:'Refusé',expire:'Expiré',converti:'Converti'};
+  const statutColors={brouillon:'badge-secondary',envoye:'badge-primary',accepte:'badge-success',refuse:'badge-danger',expire:'badge-warning',converti:'badge-info'};
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="section-header">
+        <h3>Devis (${data.length})</h3>
+        <button class="btn btn-primary" onclick="ouvrirNouveauDevis()">+ Nouveau devis</button>
+      </div>
+      <div class="search-bar" style="flex-wrap:wrap;gap:8px">
+        <input type="text" id="dv-s" placeholder="N° ou client..." value="${s}"
+          oninput="renderDevis(this.value,document.getElementById('dv-st').value)">
+        <select id="dv-st" onchange="renderDevis(document.getElementById('dv-s').value,this.value)"
+          style="padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+          ${statutOpts.map(v=>`<option value="${v}" ${v===statut?'selected':''}>${v?statutLabels[v]:'Tous les statuts'}</option>`).join('')}
+        </select>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>N°</th><th>Client</th><th>Commercial</th><th>Total</th><th>Validité</th><th>Statut</th><th>Date</th><th></th></tr></thead>
+        <tbody>${data.map(d=>`
+          <tr>
+            <td><strong>${d.numero}</strong></td>
+            <td>${d.client_nom||'Sans client'}</td>
+            <td>${d.commercial_nom||'-'}</td>
+            <td>${fmt(d.total)}</td>
+            <td>${d.validite?fmtD(d.validite):'-'}</td>
+            <td><span class="badge ${statutColors[d.statut]||'badge-secondary'}">${statutLabels[d.statut]||d.statut}</span></td>
+            <td>${fmtD(d.created_at)}</td>
+            <td style="white-space:nowrap">
+              <button class="btn-icon" title="Voir" onclick="voirDevis(${d.id})">👁</button>
+              <button class="btn-icon" title="Imprimer" onclick="imprimerDevis(${d.id})">🖨️</button>
+              ${d.statut==='accepte'?`<button class="btn-icon" title="Convertir en vente" onclick="convertirDevis(${d.id},'${d.numero}')">✅</button>`:''}
+              ${['brouillon','refuse','expire'].includes(d.statut)?`<button class="btn-icon" title="Supprimer" onclick="supprimerDevis(${d.id},'${d.numero}')">🗑️</button>`:''}
+            </td>
+          </tr>`).join('')||'<tr><td colspan="8" class="text-muted" style="text-align:center;padding:16px">Aucun devis</td></tr>'}
+        </tbody>
+      </table></div>
+    </div>`;
+}
+
+async function voirDevis(id){
+  const d=await api(`/devis/${id}`);
+  const statutLabels={brouillon:'Brouillon',envoye:'Envoyé',accepte:'Accepté',refuse:'Refusé',expire:'Expiré',converti:'Converti'};
+  const statutColors={brouillon:'badge-secondary',envoye:'badge-primary',accepte:'badge-success',refuse:'badge-danger',expire:'badge-warning',converti:'badge-info'};
+  showModal(`<div class="modal modal-lg">
+    <div class="modal-header"><h3>Devis ${d.numero}</h3><button class="btn-icon" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div><strong>Client:</strong> ${d.client_nom||'Sans client'}<br><strong>Commercial:</strong> ${d.commercial_nom||'-'}</div>
+        <div><strong>Date:</strong> ${fmtD(d.created_at)}<br><strong>Validité:</strong> ${d.validite?fmtD(d.validite):'-'}</div>
+        <div><strong>Statut:</strong> <span class="badge ${statutColors[d.statut]||''}"> ${statutLabels[d.statut]||d.statut}</span></div>
+      </div>
+      ${d.notes?`<div style="margin:10px 0;padding:10px;background:#f9fafb;border-radius:6px;font-size:13px">${d.notes}</div>`:''}
+      <div class="separator"></div>
+      <table><thead><tr><th>Produit</th><th>Qté</th><th>Prix unit.</th><th>Total</th></tr></thead>
+      <tbody>${d.lignes.map(l=>`<tr><td>${l.produit_code?`<span style="color:#9ca3af;font-size:11px">[${l.produit_code}]</span> `:''} ${l.produit_nom}</td><td>${l.quantite}</td><td>${fmt(l.prix_unitaire)}</td><td>${fmt(l.total)}</td></tr>`).join('')}</tbody></table>
+      <div class="separator"></div>
+      <div style="text-align:right">
+        ${d.remise?`<div>Remise: ${fmt(d.remise)}</div>`:''}
+        <div style="font-size:17px;font-weight:700">Total: ${fmt(d.total)}</div>
+      </div>
+    </div>
+    <div class="modal-footer" style="gap:8px">
+      <button class="btn btn-outline" onclick="closeModal()">Fermer</button>
+      <button class="btn btn-outline" onclick="imprimerDevis(${d.id});closeModal()">🖨️ Imprimer</button>
+      ${d.statut!=='converti'?`
+      <select id="new-statut-${d.id}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px">
+        ${['brouillon','envoye','accepte','refuse','expire'].map(s=>`<option value="${s}" ${s===d.statut?'selected':''}>${statutLabels[s]}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary" onclick="changerStatutDevis(${d.id})">Changer statut</button>`:''}
+      ${d.statut==='accepte'?`<button class="btn btn-success" onclick="convertirDevis(${d.id},'${d.numero}')">✅ Convertir en vente</button>`:''}
+    </div>
+  </div>`);
+}
+
+async function changerStatutDevis(id){
+  const s=document.getElementById(`new-statut-${id}`).value;
+  await api(`/devis/${id}/statut`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({statut:s})});
+  toast('Statut mis à jour'); closeModal(); renderDevis();
+}
+
+async function supprimerDevis(id,num){
+  if(!confirm(`Supprimer le devis ${num} ?`))return;
+  await api(`/devis/${id}`,{method:'DELETE'}); toast('Devis supprimé'); renderDevis();
+}
+
+async function convertirDevis(id,num){
+  if(!confirm(`Convertir le devis ${num} en vente ?`))return;
+  const res=await api(`/devis/${id}/convertir`,{method:'POST'});
+  toast(`Vente ${res.numero} créée`); closeModal?.(); renderDevis();
+}
+
+async function imprimerDevis(id){
+  const d=await api(`/devis/${id}`);
+  let client=null;
+  if(d.client_id){ try{client=await api(`/clients/${d.client_id}`);}catch(e){} }
+  const lignes=d.lignes.map(l=>({nom:l.produit_nom,code:l.produit_code||'',qty:l.quantite,prix:l.prix_unitaire}));
+  printDevis(d,lignes,d.total,d.remise,client);
+}
+
+function printDevis(d,lignes,total,remise,client){
+  const m=currentMagasin()||{};
+  const ORG='#e07b39';
+  const date=d.created_at?new Date(d.created_at).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
+  const validite=d.validite?new Date(d.validite).toLocaleDateString('fr-FR'):null;
+  const footerAddr=`<strong>${m.nom||'Ya Matériels'}</strong>${m.adresse?', '+m.adresse:''} | Siège : ABIDJAN, Cocody - Rivera GOLF`;
+  const w=window.open('','_blank','width=900,height=700');
+  w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Devis ${d.numero}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;font-size:12px;color:#374151;background:#fff;padding:32px 40px}
+    .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:3px solid ${ORG}}
+    .hd-left img{max-height:64px;max-width:120px}
+    .hd-left .badge-devis{margin-top:10px;display:inline-block;padding:4px 14px;background:${ORG};color:#fff;border-radius:4px;font-size:13px;font-weight:700;letter-spacing:.04em}
+    .hd-right{text-align:right}
+    .hd-right .co{font-size:18px;font-weight:800;color:${ORG};letter-spacing:-.01em}
+    .hd-right .sl{font-size:11px;color:#6b7280;margin-top:2px}
+    .hd-right .ct{font-size:11px;color:#6b7280;margin-top:2px}
+    .meta{display:flex;justify-content:space-between;gap:20px;margin-bottom:24px}
+    .meta-box{flex:1;background:#f9fafb;border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.7}
+    .meta-box strong{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:${ORG};margin-bottom:6px}
+    table{width:100%;border-collapse:collapse;margin-bottom:20px}
+    thead tr{background:${ORG};color:#fff}
+    thead th{padding:9px 10px;text-align:left;font-size:12px;font-weight:700}
+    tbody tr:nth-child(even){background:#f9fafb}
+    tbody td{padding:8px 10px;border-bottom:1px solid #e5e7eb}
+    .tr-tot td{background:#1f2937;color:#fff;font-weight:700;padding:10px}
+    .conditions{margin-top:24px;padding:12px 16px;background:#f9fafb;border-radius:6px;font-size:11px;color:#6b7280;line-height:1.7}
+    .footer{margin-top:24px;border-top:2px solid ${ORG};padding-top:10px;display:flex;justify-content:space-between;font-size:10px;color:#9ca3af}
+    @media print{body{padding:0}.footer{position:fixed;bottom:16px;left:40px;right:40px}}
+  </style></head><body>
+  <div class="hd">
+    <div class="hd-left">
+      ${m.logo?`<img src="${m.logo}" alt="logo">`:''}
+      <div class="badge-devis">DEVIS</div>
+    </div>
+    <div class="hd-right">
+      <div class="co">${m.nom||'Ya Matériels'}</div>
+      ${m.slogan?`<div class="sl">${m.slogan}</div>`:''}
+      <div class="ct">${[m.email,m.telephone].filter(Boolean).join(' | ')}</div>
+      ${m.rccm?`<div class="ct">RCCM : ${m.rccm}</div>`:''}
+      ${m.nif?`<div class="ct">NIF : ${m.nif}</div>`:''}
+    </div>
+  </div>
+  <div class="meta">
+    <div class="meta-box">
+      <strong>Informations devis</strong>
+      N° : <strong>${d.numero}</strong><br>
+      Date : ${date}<br>
+      ${validite?`Validité : <strong>${validite}</strong><br>`:''}
+      ${d.commercial_nom?`Commercial : ${d.commercial_nom}<br>`:''}
+    </div>
+    <div class="meta-box">
+      <strong>Client</strong>
+      ${client?`${client.nom}<br>${client.telephone?'Tél : '+client.telephone+'<br>':''}${client.adresse||''}`:'Client au comptant'}
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>Description</th><th>Quantité</th><th>Prix unitaire</th><th>Montant</th></tr></thead>
+    <tbody>
+      ${lignes.map(it=>`<tr>
+        <td>${it.code?`<span style="color:#9ca3af;font-size:10px">[${it.code}]</span> `:''} ${it.nom}</td>
+        <td>${it.qty} Unité(s)</td>
+        <td>${fmt(it.prix)} CFA</td>
+        <td><strong>${fmt(it.qty*it.prix)} CFA</strong></td>
+      </tr>`).join('')}
+      ${remise?`<tr><td colspan="3" style="text-align:right;padding:8px 10px;color:#6b7280">Remise</td><td style="padding:8px 10px;color:var(--danger,#e02424)">- ${fmt(remise)} CFA</td></tr>`:''}
+      <tr class="tr-tot"><td colspan="3">Total devis</td><td>${fmt(total)} CFA</td></tr>
+    </tbody>
+  </table>
+  <div class="conditions">
+    <strong style="color:#374151">Conditions :</strong>
+    Ce devis est valable ${validite?`jusqu\'au <strong>${validite}</strong>`:'30 jours à compter de sa date d\'émission'}.
+    Les prix indiqués sont en Francs CFA TTC. Toute commande implique l\'acceptation des présentes conditions.<br>
+    ${m.recu_pied?`<em>${m.recu_pied}</em>`:'<em>Merci pour votre confiance.</em>'}
+  </div>
+  <div class="footer">
+    <div>${footerAddr}</div>
+    <div>Page 1 / 1</div>
+  </div>
+  <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+// ── Formulaire Nouveau Devis ──────────────────────────────────────────────────
+async function ouvrirNouveauDevis(){
+  devisPanier=[];
+  const [prods,clients]=await Promise.all([
+    api(`/produits?magasin_id=${currentMagasinId}`),
+    api(`/clients?magasin_id=${currentMagasinId}`)
+  ]);
+  devisProds=prods;
+  const today=new Date(); today.setDate(today.getDate()+30);
+  const validiteDefaut=today.toISOString().split('T')[0];
+  showModal(`<div class="modal modal-lg" style="max-width:860px;width:98vw">
+    <div class="modal-header"><h3>Nouveau Devis</h3><button class="btn-icon" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+      <div class="form-row" style="gap:12px;flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:160px">
+          <label>Client</label>
+          <select id="dv-client" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px">
+            <option value="">Aucun (comptant)</option>
+            ${clients.map(c=>`<option value="${c.id}">${c.nom}${c.telephone?' - '+c.telephone:''}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="flex:1;min-width:140px">
+          <label>Validité</label>
+          <input type="date" id="dv-validite" value="${validiteDefaut}" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px">
+        </div>
+        <div class="form-group" style="flex:1;min-width:80px">
+          <label>Remise (CFA)</label>
+          <input type="number" id="dv-remise" value="0" min="0" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px" oninput="devisMajTotal()">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="dv-notes" rows="2" style="width:100%;padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;resize:vertical" placeholder="Remarques, conditions particulières..."></textarea>
+      </div>
+      <div class="separator"></div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="text" id="dv-prod-search" placeholder="🔍 Rechercher un produit à ajouter..."
+          oninput="devisFilterProds()" style="flex:1;padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px">
+      </div>
+      <div id="dv-prod-results" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:7px;margin-bottom:12px"></div>
+      <table id="dv-panier-table" style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f3f4f6">
+          <th style="padding:7px 8px;text-align:left">Produit</th>
+          <th style="padding:7px 8px">Qté</th>
+          <th style="padding:7px 8px">PU (CFA)</th>
+          <th style="padding:7px 8px">Total</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="dv-panier-body"></tbody>
+      </table>
+      <div style="text-align:right;font-size:15px;font-weight:700;margin-top:8px">
+        Total : <span id="dv-total">0</span> CFA
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="sauvegarderDevis('brouillon')">💾 Brouillon</button>
+      <button class="btn btn-success" onclick="sauvegarderDevis('envoye')">📤 Enregistrer & Envoyer</button>
+    </div>
+  </div>`);
+  devisFilterProds();
+}
+
+function devisFilterProds(){
+  const q=(document.getElementById('dv-prod-search')?.value||'').toLowerCase();
+  const el=document.getElementById('dv-prod-results');
+  if(!el)return;
+  const matches=devisProds.filter(p=>!q||p.nom.toLowerCase().includes(q)||p.code?.toLowerCase().includes(q)).slice(0,20);
+  el.innerHTML=matches.map(p=>`
+    <div onclick="devisAjouterProd(${p.id})" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;transition:background .1s" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
+      <span>${p.code?`<span style="color:#9ca3af;font-size:11px">[${p.code}]</span> `:''}${p.nom}</span>
+      <span style="color:#6b7280;font-size:12px">${fmt(p.prix_vente)} CFA · stock: ${p.quantite}</span>
+    </div>`).join('')||'<div style="padding:12px;color:#9ca3af;text-align:center">Aucun produit trouvé</div>';
+}
+
+function devisAjouterProd(id){
+  const p=devisProds.find(x=>x.id===id);
+  if(!p)return;
+  const ex=devisPanier.find(x=>x.id===id);
+  if(ex){ex.qty++;} else {devisPanier.push({id,nom:p.nom,code:p.code||'',prix:p.prix_vente,qty:1});}
+  devisRenderPanier();
+}
+
+function devisRenderPanier(){
+  const body=document.getElementById('dv-panier-body');
+  if(!body)return;
+  body.innerHTML=devisPanier.map((it,i)=>`
+    <tr>
+      <td style="padding:6px 8px">${it.code?`<span style="color:#9ca3af;font-size:11px">[${it.code}]</span> `:''}${it.nom}</td>
+      <td style="padding:6px 4px"><input type="number" value="${it.qty}" min="0.1" step="0.1" style="width:60px;padding:4px;border:1px solid var(--border);border-radius:5px;text-align:center" oninput="devisQtyChange(${i},this.value)"></td>
+      <td style="padding:6px 4px"><input type="number" value="${it.prix}" min="0" style="width:90px;padding:4px;border:1px solid var(--border);border-radius:5px;text-align:right" oninput="devisPrixChange(${i},this.value)"></td>
+      <td style="padding:6px 8px;text-align:right;font-weight:600">${fmt(it.qty*it.prix)}</td>
+      <td><button class="btn-icon" onclick="devisRetirer(${i})">✕</button></td>
+    </tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:12px">Aucun article — chercher un produit ci-dessus</td></tr>';
+  devisMajTotal();
+}
+
+function devisQtyChange(i,v){devisPanier[i].qty=parseFloat(v)||1;devisRenderPanier();}
+function devisPrixChange(i,v){devisPanier[i].prix=parseFloat(v)||0;devisRenderPanier();}
+function devisRetirer(i){devisPanier.splice(i,1);devisRenderPanier();}
+
+function devisMajTotal(){
+  const remise=parseFloat(document.getElementById('dv-remise')?.value)||0;
+  const brut=devisPanier.reduce((s,it)=>s+it.qty*it.prix,0);
+  const el=document.getElementById('dv-total');
+  if(el) el.textContent=fmtN(Math.max(0,brut-remise));
+}
+
+async function sauvegarderDevis(statut){
+  if(devisPanier.length===0){toast('Ajoutez au moins un produit','warning');return;}
+  const clientId=document.getElementById('dv-client').value;
+  const validite=document.getElementById('dv-validite').value;
+  const remise=parseFloat(document.getElementById('dv-remise').value)||0;
+  const notes=document.getElementById('dv-notes').value;
+  const payload={
+    magasin_id:currentMagasinId,
+    commercial_id:currentUser?.id||null,
+    client_id:clientId?parseInt(clientId):null,
+    lignes:devisPanier.map(it=>({produit_id:it.id,quantite:it.qty,prix_unitaire:it.prix})),
+    remise,validite:validite||null,notes,statut
+  };
+  const res=await api('/devis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  toast(`Devis ${res.numero} créé`); closeModal(); renderDevis();
+}
+
 // ── Pages ─────────────────────────────────────────────────────────────────────
 const pages={
   dashboard:pageDashboard, pos:pagePos, ventes:pageVentes,
   produits:pageProduits, stock:pageStock, achats:pageAchats,
-  clients:pageClients, fournisseurs:pageFournisseurs, depenses:pageDepenses,
+  clients:pageClients, devis:pageDevis, fournisseurs:pageFournisseurs, depenses:pageDepenses,
   comptabilite:pageComptabilite, magasins:pageMagasins, utilisateurs:pageUtilisateurs,
   analyse:pageAnalyse
 };

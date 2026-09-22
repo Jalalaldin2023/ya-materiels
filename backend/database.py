@@ -165,6 +165,29 @@ def init_db():
             magasin_id INTEGER NOT NULL REFERENCES magasins(id),
             created_at TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS devis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT UNIQUE,
+            client_id INTEGER REFERENCES clients(id),
+            commercial_id INTEGER REFERENCES utilisateurs(id),
+            total REAL NOT NULL DEFAULT 0,
+            remise REAL DEFAULT 0,
+            statut TEXT DEFAULT 'brouillon',
+            validite TEXT,
+            notes TEXT,
+            magasin_id INTEGER NOT NULL REFERENCES magasins(id),
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS devis_lignes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            devis_id INTEGER NOT NULL REFERENCES devis(id) ON DELETE CASCADE,
+            produit_id INTEGER NOT NULL REFERENCES produits(id),
+            quantite REAL NOT NULL,
+            prix_unitaire REAL NOT NULL,
+            total REAL NOT NULL
+        );
     """)
 
     # ── Migrations : nouvelles colonnes sur table existante ─────────────────
