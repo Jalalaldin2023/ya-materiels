@@ -906,9 +906,11 @@ async function initApp() {
   // Déterminer le magasin courant
   if(canSeeConsolide()) {
     currentMagasinId = allMagasins[0]?.id || null;
-    setupStoreSwitcher();
   } else {
-    currentMagasinId = currentUser.magasin_id || allMagasins[0]?.id;
+    // Utilisateur à magasin fixe : verrouillé sur son magasin
+    currentMagasinId = currentUser.magasin_id
+      ? parseInt(currentUser.magasin_id)
+      : (allMagasins[0]?.id || null);
   }
 
   applyMagasinTheme();
@@ -926,9 +928,14 @@ async function initApp() {
 function setupStoreSwitcher() {
   const sw = document.getElementById('store-switcher');
   const sel = document.getElementById('store-select');
+  // Sélecteur visible uniquement pour admin/DG (multi-magasin)
+  if(!canSeeConsolide()) {
+    sw.classList.add('hidden');
+    return;
+  }
   sw.classList.remove('hidden');
   sel.innerHTML = '';
-  if(canSeeConsolide()) sel.innerHTML += `<option value="all">📊 Vue consolidée</option>`;
+  sel.innerHTML += `<option value="all">📊 Vue consolidée</option>`;
   allMagasins.forEach(m => {
     sel.innerHTML += `<option value="${m.id}">${m.nom}</option>`;
   });
@@ -936,6 +943,8 @@ function setupStoreSwitcher() {
 }
 
 function switchStore(val) {
+  // Seuls admin/DG peuvent changer de magasin
+  if(!canSeeConsolide()) return;
   currentMagasinId = val === 'all' ? null : parseInt(val);
   applyMagasinTheme();
   updateSidebarBranding();
@@ -1011,6 +1020,11 @@ const pageTitles = {
 };
 
 function showPage(page) {
+  // Vérifier que l'utilisateur a la permission d'accéder à cette page
+  const navLink = document.querySelector(`#sidebar-nav a[data-page="${page}"][data-perm]`);
+  if(navLink && !hasPerm(navLink.dataset.perm)) { restricted(); return; }
+  // Vérifier que l'utilisateur est bien sur son magasin
+  if(navLink?.classList.contains('need-store') && !currentMagasinId) { noStore(); return; }
   document.querySelectorAll('#sidebar-nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
   document.getElementById('page-title').textContent=pageTitles[page]||page;
   updateStoreTag();
