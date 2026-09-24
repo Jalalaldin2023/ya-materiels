@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a56db">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Ya Matériels">
+<link rel="manifest" href="/manifest.json">
 <title>Ya Matériels</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -345,6 +351,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
           <span id="store-tag-name">...</span>
         </div>
         <span id="stock-alert-badge" class="badge badge-danger hidden"></span>
+        <span id="offline-badge" style="display:none;align-items:center;gap:6px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer" onclick="syncPending()" title="Cliquer pour synchroniser">
+          🔴 Hors ligne &nbsp;<span id="pending-badge" style="display:none;background:#e02424;color:#fff;border-radius:99px;padding:1px 6px;font-size:10px">0</span>
+        </span>
+        <span id="sync-badge" style="display:none;align-items:center;gap:5px;background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700">
+          🟢 En ligne
+        </span>
         <span id="current-time" class="text-muted" style="font-size:12px"></span>
       </div>
     </div>
@@ -356,6 +368,83 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
 
 <script>
 const API = window.location.hostname === 'localhost' ? 'http://localhost:8000/api' : '/api';
+
+// ── Service Worker ─────────────────────────────────────────────────────────────
+if('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
+
+// ── Offline / Cache layer ─────────────────────────────────────────────────────
+let appOffline = !navigator.onLine;
+
+// Lecture/écriture localStorage sécurisée
+const ODB = {
+  get(k){ try{return JSON.parse(localStorage.getItem('ym_'+k))}catch{return null} },
+  set(k,v){ try{localStorage.setItem('ym_'+k,JSON.stringify(v))}catch(e){} },
+  del(k){ try{localStorage.removeItem('ym_'+k)}catch{} }
+};
+
+// Règles de mise en cache par chemin API
+const CACHE_RULES = [
+  { match: p => /^\/produits\?/.test(p),             key: p => 'produits_'+(p.match(/magasin_id=(\d+)/)||[])[1] },
+  { match: p => /^\/produits\/categories/.test(p),    key: p => 'cats_'+(p.match(/magasin_id=(\d+)/)||[])[1] },
+  { match: p => /^\/clients\?/.test(p),              key: p => 'clients_'+(p.match(/magasin_id=(\d+)/)||[])[1] },
+  { match: p => p === '/auth/magasins',              key: () => 'magasins' },
+];
+
+function queueOfflineRequest(path, body) {
+  const q = ODB.get('pending_sync') || [];
+  q.push({ path, body, ts: Date.now() });
+  ODB.set('pending_sync', q);
+  updateOfflineUI();
+}
+
+async function syncPending() {
+  const q = ODB.get('pending_sync') || [];
+  if(!q.length){ toast('Aucune vente en attente'); return; }
+  let synced = 0;
+  const remaining = [];
+  for(const req of q){
+    try {
+      const r = await fetch(API + req.path, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(req.body)
+      });
+      if(r.ok) synced++;
+      else remaining.push(req);
+    } catch { remaining.push(req); }
+  }
+  ODB.set('pending_sync', remaining);
+  if(synced > 0) toast(`✅ ${synced} vente(s) synchronisée(s) !`);
+  if(remaining.length > 0) toast(`⚠️ ${remaining.length} vente(s) encore en attente`, 'warning');
+  updateOfflineUI();
+}
+
+function updateOfflineUI() {
+  const q = ODB.get('pending_sync') || [];
+  const nb = q.length;
+  const offBadge = document.getElementById('offline-badge');
+  const synBadge = document.getElementById('sync-badge');
+  const pendBadge = document.getElementById('pending-badge');
+  if(!offBadge) return;
+  if(appOffline) {
+    offBadge.style.display = 'flex';
+    if(synBadge) synBadge.style.display = 'none';
+    if(pendBadge){
+      pendBadge.style.display = nb > 0 ? 'inline' : 'none';
+      pendBadge.textContent = nb;
+    }
+  } else {
+    offBadge.style.display = 'none';
+    if(synBadge){
+      synBadge.style.display = 'flex';
+      setTimeout(()=>{ if(synBadge) synBadge.style.display='none'; }, 3000);
+    }
+  }
+}
+
+window.addEventListener('online',  () => { appOffline=false; updateOfflineUI(); syncPending(); });
+window.addEventListener('offline', () => { appOffline=true;  updateOfflineUI(); });
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentUser = null;
@@ -406,6 +495,9 @@ function canSeeConsolide(){ return ['admin','dg'].includes(currentUser?.role); }
 function canAdmin()       { return currentUser?.role === 'admin'; }
 
 async function api(path, opts={}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const rule = method === 'GET' ? CACHE_RULES.find(r => r.match(path)) : null;
+
   try {
     const r = await fetch(API + path, {
       headers: {'Content-Type':'application/json'},
@@ -414,8 +506,35 @@ async function api(path, opts={}) {
     });
     const data = await r.json();
     if(!r.ok) throw new Error(data.detail || 'Erreur serveur');
+    // Mise en cache des GET importants
+    if(rule) ODB.set(rule.key(path), data);
+    // Retour en ligne
+    if(appOffline){ appOffline=false; updateOfflineUI(); }
     return data;
-  } catch(e) { toast(e.message, 'danger'); throw e; }
+
+  } catch(e) {
+    const isNetworkError = e instanceof TypeError || e.message?.includes('fetch') || !navigator.onLine;
+    if(isNetworkError) {
+      // GET → retourner le cache
+      if(method === 'GET' && rule) {
+        const cached = ODB.get(rule.key(path));
+        if(cached !== null){ appOffline=true; updateOfflineUI(); return cached; }
+      }
+      // POST ventes / devis → mettre en file d'attente
+      if(method === 'POST' && (path.startsWith('/ventes') || path.startsWith('/devis'))) {
+        appOffline = true; updateOfflineUI();
+        queueOfflineRequest(path, opts.body);
+        const ts = Date.now();
+        toast('📴 Hors ligne — vente mise en attente (sync auto à la reconnexion)', 'warning');
+        return { numero:'OFFLINE-'+ts, id:-ts, _offline:true };
+      }
+      appOffline = true; updateOfflineUI();
+      toast('Hors connexion — données en cache affichées', 'warning');
+      throw e;
+    }
+    toast(e.message, 'danger');
+    throw e;
+  }
 }
 
 function toast(msg, type='success') {
@@ -609,12 +728,25 @@ async function doLogin(creds=null) {
   try {
     user = await api('/auth/login', {method:'POST', body:{username, password}});
   } catch(e) {
-    // Erreur 401 = mauvais identifiants
-    localStorage.removeItem(LS_REMEMBER_KEY);
-    showLoginError('Identifiant ou mot de passe incorrect');
-    const bar = document.getElementById('l-auto-login-bar');
-    if(bar) bar.style.display='none';
-    return;
+    // Hors ligne → essayer la session locale sauvegardée
+    if(!navigator.onLine || e instanceof TypeError) {
+      const sess = ODB.get('session');
+      if(sess && sess.username === username && sess.password === password) {
+        user = sess.user;
+        appOffline = true;
+        toast('📴 Mode hors ligne — session locale restaurée', 'warning');
+      } else {
+        showLoginError('Hors connexion et aucune session locale trouvée');
+        return;
+      }
+    } else {
+      // Erreur 401 = mauvais identifiants
+      localStorage.removeItem(LS_REMEMBER_KEY);
+      showLoginError('Identifiant ou mot de passe incorrect');
+      const bar = document.getElementById('l-auto-login-bar');
+      if(bar) bar.style.display='none';
+      return;
+    }
   }
 
   // 2. Identifiants OK — mémoriser si demandé
@@ -624,7 +756,10 @@ async function doLogin(creds=null) {
     localStorage.removeItem(LS_REMEMBER_KEY);
   }
 
-  // 3. Charger l'app
+  // 3. Sauvegarder la session pour usage hors-ligne
+  ODB.set('session', { user, username, password });
+
+  // 4. Charger l'app
   currentUser = user;
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').classList.add('visible');
@@ -780,9 +915,12 @@ async function initApp() {
   updateSidebarBranding();
   updateUserPanel();
   applyRoleNav();
+  updateOfflineUI();
   showPage('dashboard');
   setInterval(checkAlertesStock, 60000);
   checkAlertesStock();
+  // Sync auto si des ventes étaient en attente
+  if(!appOffline){ const q=ODB.get('pending_sync')||[]; if(q.length) syncPending(); }
 }
 
 function setupStoreSwitcher() {
@@ -1542,13 +1680,29 @@ async function confirmerVente(total,rem){
   };
   try{
     const res=await api('/ventes',{method:'POST',body:payload});
+    const snap=[...panier];
+    closeModal();
+    panier=[]; renderPanier(); document.getElementById('remise').value=0;
+    pvNiveau=1; setPvNiveau(1);
+
+    if(res._offline){
+      // Vente mise en file d'attente hors-ligne
+      toast('📴 Vente mise en attente — sera envoyée à la reconnexion', 'warning');
+      // Décrémenter stock local du cache
+      const cached=ODB.get('produits_'+currentMagasinId)||[];
+      snap.forEach(it=>{ const p=cached.find(x=>x.id===it.id); if(p) p.quantite=Math.max(0,p.quantite-it.qty); });
+      ODB.set('produits_'+currentMagasinId, cached);
+      posProds=cached; filterPos();
+      // Imprimer quand même
+      if(docType==='facture') printFacture(res,snap,total,rem,mode,rec,null,null,currentUser?.nom);
+      else printReceipt(res,snap,total,mode,rec);
+      return;
+    }
+
+    toast(`✅ Vente ${res.numero} enregistrée !`);
     // Trouver infos client si sélectionné
     const clients=clientId ? await api(`/clients?magasin_id=${currentMagasinId}`) : [];
     const client=clients.find(c=>c.id==clientId)||null;
-    closeModal(); toast(`✅ Vente ${res.numero} enregistrée !`);
-    const snap=[...panier];
-    panier=[]; renderPanier(); document.getElementById('remise').value=0;
-    pvNiveau=1; setPvNiveau(1);
     posProds=await api(`/produits?magasin_id=${currentMagasinId}`); filterPos();
     if(docType==='facture') printFacture(res,snap,total,rem,mode,rec,client,null,currentUser?.nom);
     else printReceipt(res,snap,total,mode,rec);
