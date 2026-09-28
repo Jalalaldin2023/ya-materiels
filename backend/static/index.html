@@ -322,6 +322,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0
       <a onclick="showPage('clients')" data-page="clients" data-perm="clients" class="need-store"><span class="icon">👥</span> Clients</a>
       <a onclick="showPage('devis')" data-page="devis" data-perm="devis" class="need-store"><span class="icon">📝</span> Devis</a>
       <a onclick="showPage('fournisseurs')" data-page="fournisseurs" data-perm="fournisseurs" class="need-store"><span class="icon">🏭</span> Fournisseurs</a>
+      <a onclick="showPage('sms')" data-page="sms" data-perm="sms" class="need-store"><span class="icon">📱</span> SMS / Relances</a>
       <div class="nav-sep nav-finances-sep">FINANCES</div>
       <a onclick="showPage('depenses')" data-page="depenses" data-perm="depenses" class="need-store"><span class="icon">💸</span> Dépenses</a>
       <a onclick="showPage('comptabilite')" data-page="comptabilite" data-perm="comptabilite" class="need-store"><span class="icon">📈</span> Comptabilité</a>
@@ -464,11 +465,11 @@ const fmtD = s => s ? new Date(s).toLocaleDateString('fr-FR') : '-';
 function currentMagasin() { return allMagasins.find(m => m.id === currentMagasinId) || null; }
 // ── Permissions par rôle (défauts) ───────────────────────────────────────────
 const ROLE_PERMS_DEFAULT = {
-  admin:           ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs','historique_ventes','prix_special'],
-  dg:              ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','prix_special'],
-  gerant:          ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','historique_ventes','prix_special'],
+  admin:           ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','magasins','utilisateurs','historique_ventes','prix_special','sms'],
+  dg:              ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','prix_special','sms'],
+  gerant:          ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs','depenses','comptabilite','analyse','facture','historique_ventes','prix_special','sms'],
   gestionnaire:    ['pos','ventes','produits','stock','achats','clients','devis','fournisseurs'],
-  resp_commercial: ['pos','ventes','clients','devis','facture','analyse','prix_special'],
+  resp_commercial: ['pos','ventes','clients','devis','facture','analyse','prix_special','sms'],
   comptable:       ['ventes','clients','fournisseurs','achats','depenses','comptabilite','analyse'],
   caissier:        ['pos','ventes','clients','devis','facture'],
   commercial:      ['pos','ventes','clients','devis'],
@@ -1016,7 +1017,7 @@ const pageTitles = {
   produits:'Produits', stock:'Gestion du stock', achats:'Achats',
   clients:'Clients', devis:'Devis', fournisseurs:'Fournisseurs', depenses:'Dépenses',
   comptabilite:'Comptabilité', magasins:'Paramètres des magasins', utilisateurs:'Utilisateurs',
-  analyse:'Analyse & Aide à la décision'
+  analyse:'Analyse & Aide à la décision', sms:'SMS & Relances clients'
 };
 
 function showPage(page) {
@@ -4831,12 +4832,190 @@ async function sauvegarderDevis(statut){
 }
 
 // ── Pages ─────────────────────────────────────────────────────────────────────
+// ── SMS & RELANCES CLIENTS ────────────────────────────────────────────────────
+const SMS_TEMPLATES = [
+  { label:'🆕 Nouveau stock',     msg:'Bonjour {nom}, Ya Matériels Divo a reçu de nouveaux articles ! Venez découvrir notre nouveau stock. À bientôt !' },
+  { label:'🎉 Nouvelle marchandise', msg:'Bonjour {nom}, de nouvelles marchandises viennent d\'arriver chez Ya Matériels. Venez vite avant rupture de stock !' },
+  { label:'💰 Promotion',         msg:'Bonjour {nom}, Ya Matériels vous propose des prix spéciaux cette semaine. Profitez de nos offres exclusives !' },
+  { label:'📦 Réassort ventilateurs', msg:'Bonjour {nom}, nos ventilateurs CHILLAX sont de retour en stock ! Toutes tailles disponibles. Contactez-nous : Ya Matériels Divo.' },
+  { label:'🔧 Message libre',     msg:'' },
+];
+
+let smsSelectedClients = new Set(); // 'all' ou set d'ids
+let smsAllClients = [];
+
+async function pageSms() {
+  if(!hasPerm('sms')){ restricted(); return; }
+  if(!currentMagasinId){ noStore(); return; }
+
+  const [clients, stats] = await Promise.all([
+    api(`/clients?magasin_id=${currentMagasinId}`),
+    api(`/sms/stats?magasin_id=${currentMagasinId}`).catch(()=>({total:0,envoyes:0,echecs:0}))
+  ]);
+  smsAllClients = clients;
+  smsSelectedClients = new Set(['all']);
+
+  const withPhone = clients.filter(c=>c.telephone);
+  const noPhone   = clients.filter(c=>!c.telephone);
+
+  document.getElementById('content').innerHTML = `
+  <div style="max-width:860px">
+    <!-- Stats -->
+    <div class="grid-stats" style="margin-bottom:20px">
+      <div class="card"><div class="card-title">SMS envoyés (total)</div><div class="card-value">${stats.envoyes||0}</div></div>
+      <div class="card"><div class="card-title">Clients avec téléphone</div><div class="card-value">${withPhone.length}</div></div>
+      <div class="card"><div class="card-title">Sans numéro</div><div class="card-value text-warning">${noPhone.length}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <!-- Composer -->
+      <div class="card">
+        <div class="card-title" style="font-size:15px;font-weight:700;margin-bottom:14px">✉️ Composer le message</div>
+
+        <label class="form-label">Modèle de message</label>
+        <select class="form-control" style="margin-bottom:12px" onchange="smsLoadTemplate(this.value)">
+          ${SMS_TEMPLATES.map((t,i)=>`<option value="${i}">${t.label}</option>`).join('')}
+        </select>
+
+        <label class="form-label">Message <span id="sms-chars" style="float:right;color:#6b7280;font-weight:400">0 / 160 car.</span></label>
+        <textarea id="sms-msg" class="form-control" rows="5" style="resize:vertical"
+          oninput="smsCounts()"
+          placeholder="Tapez votre message…">${SMS_TEMPLATES[0].msg.replace('{nom}','[Client]')}</textarea>
+        <div style="font-size:11px;color:#6b7280;margin:4px 0 14px">
+          Utilisez <code>{nom}</code> pour personnaliser avec le prénom du client.
+        </div>
+
+        <label class="form-label">Destinataires</label>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:14px;max-height:220px;overflow-y:auto">
+          <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-weight:600">
+            <input type="checkbox" id="chk-all" checked onchange="smsToggleAll(this.checked)">
+            Tous les clients (${withPhone.length} avec numéro)
+          </label>
+          <hr style="margin:6px 0;border-color:var(--border)">
+          ${withPhone.map(c=>`
+            <label style="display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:13px">
+              <input type="checkbox" class="sms-chk" data-id="${c.id}" checked onchange="smsToggleClient(${c.id},this.checked)">
+              ${c.nom} <span style="color:#6b7280;font-size:11px">${c.telephone}</span>
+            </label>`).join('')}
+          ${noPhone.length ? `<div style="color:#9ca3af;font-size:11px;margin-top:6px">${noPhone.length} client(s) sans numéro non affichés</div>`:''}
+        </div>
+
+        <button class="btn btn-primary" style="width:100%;font-size:15px;padding:12px" onclick="smsEnvoyer()">
+          📤 Envoyer SMS
+        </button>
+      </div>
+
+      <!-- Historique -->
+      <div class="card">
+        <div class="card-title" style="font-size:15px;font-weight:700;margin-bottom:14px">📜 Historique des envois</div>
+        <div id="sms-historique"><div class="loading">Chargement…</div></div>
+      </div>
+    </div>
+  </div>`;
+
+  smsCounts();
+  smsLoadTemplate(0);
+  renderSmsHistorique();
+}
+
+function smsCounts() {
+  const n = (document.getElementById('sms-msg')?.value||'').length;
+  const el = document.getElementById('sms-chars');
+  if(el) el.textContent = `${n} / 160 car.${n>160?' (+frais)':''}`;
+  if(el) el.style.color = n > 160 ? '#dc2626' : '#6b7280';
+}
+
+function smsLoadTemplate(idx) {
+  const t = SMS_TEMPLATES[parseInt(idx)];
+  const el = document.getElementById('sms-msg');
+  if(el && t.msg) el.value = t.msg.replace('{nom}','[Client]');
+  smsCounts();
+}
+
+function smsToggleAll(checked) {
+  document.querySelectorAll('.sms-chk').forEach(cb => {
+    cb.checked = checked;
+    const id = parseInt(cb.dataset.id);
+    checked ? smsSelectedClients.add(id) : smsSelectedClients.delete(id);
+  });
+  if(checked) smsSelectedClients.add('all'); else smsSelectedClients.delete('all');
+}
+
+function smsToggleClient(id, checked) {
+  checked ? smsSelectedClients.add(id) : smsSelectedClients.delete(id);
+  const allChecked = document.querySelectorAll('.sms-chk:not(:checked)').length === 0;
+  const allBox = document.getElementById('chk-all');
+  if(allBox) allBox.checked = allChecked;
+  allChecked ? smsSelectedClients.add('all') : smsSelectedClients.delete('all');
+}
+
+async function smsEnvoyer() {
+  const msg = document.getElementById('sms-msg')?.value?.trim();
+  if(!msg){ alert('Veuillez saisir un message.'); return; }
+
+  const ids = smsSelectedClients.has('all')
+    ? []
+    : [...smsSelectedClients].filter(x => typeof x === 'number');
+
+  const count = smsSelectedClients.has('all')
+    ? smsAllClients.filter(c=>c.telephone).length
+    : ids.length;
+
+  if(count === 0){ alert('Aucun destinataire sélectionné avec numéro de téléphone.'); return; }
+  if(!confirm(`Envoyer ce SMS à ${count} client(s) ?`)) return;
+
+  const btn = document.querySelector('#content button.btn-primary');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Envoi en cours…'; }
+
+  try {
+    const res = await api('/sms/envoyer', {
+      method:'POST',
+      body: JSON.stringify({ client_ids: ids, message: msg, magasin_id: currentMagasinId })
+    });
+    alert(`✅ SMS envoyés : ${res.sent}\n❌ Échecs : ${res.failed}`);
+    renderSmsHistorique();
+  } catch(e) {
+    alert('Erreur lors de l\'envoi : ' + e.message);
+  } finally {
+    if(btn){ btn.disabled=false; btn.textContent='📤 Envoyer SMS'; }
+  }
+}
+
+async function renderSmsHistorique() {
+  const el = document.getElementById('sms-historique');
+  if(!el) return;
+  try {
+    const rows = await api(`/sms/historique?magasin_id=${currentMagasinId}&limit=50`);
+    if(!rows.length){ el.innerHTML='<p style="color:#9ca3af;font-size:13px">Aucun SMS envoyé pour le moment.</p>'; return; }
+
+    // Grouper par message (campagne)
+    const grouped = {};
+    rows.forEach(r => {
+      const key = r.created_at.slice(0,16) + '|' + r.message.slice(0,30);
+      if(!grouped[key]) grouped[key] = { date:r.created_at, message:r.message, items:[] };
+      grouped[key].items.push(r);
+    });
+
+    el.innerHTML = Object.values(grouped).slice(0,15).map(g => `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:11px;color:#6b7280">${fmtDT(g.date)}</span>
+          <span class="badge badge-primary">${g.items.filter(x=>x.statut==='envoye').length} envoyés</span>
+        </div>
+        <div style="font-size:12px;color:#374151;margin-bottom:8px;background:#f9fafb;border-radius:6px;padding:6px">${g.message.slice(0,100)}${g.message.length>100?'…':''}</div>
+        <div style="font-size:11px;color:#6b7280">${g.items.map(x=>`${x.client_nom||x.telephone} <span style="color:${x.statut==='envoye'?'#16a34a':'#dc2626'}">●</span>`).join(' · ')}</div>
+      </div>`).join('');
+  } catch(e) {
+    el.innerHTML = '<p style="color:#dc2626;font-size:12px">Erreur de chargement.</p>';
+  }
+}
+
 const pages={
   dashboard:pageDashboard, pos:pagePos, ventes:pageVentes,
   produits:pageProduits, stock:pageStock, achats:pageAchats,
   clients:pageClients, devis:pageDevis, fournisseurs:pageFournisseurs, depenses:pageDepenses,
   comptabilite:pageComptabilite, magasins:pageMagasins, utilisateurs:pageUtilisateurs,
-  analyse:pageAnalyse
+  analyse:pageAnalyse, sms:pageSms
 };
 
 // ── Clock & Alertes ───────────────────────────────────────────────────────────

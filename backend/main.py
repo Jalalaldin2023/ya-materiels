@@ -6,7 +6,7 @@ import os
 import traceback
 
 from database import init_db
-from routers import produits, ventes, clients, fournisseurs, achats, depenses, stock, dashboard, auth, devis
+from routers import produits, ventes, clients, fournisseurs, achats, depenses, stock, dashboard, auth, devis, sms
 
 app = FastAPI(title="Quincaillerie API")
 
@@ -33,6 +33,7 @@ app.include_router(stock.router, prefix="/api/stock", tags=["Stock"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(devis.router, prefix="/api/devis", tags=["Devis"])
+app.include_router(sms.router,  prefix="/api/sms",   tags=["SMS"])
 
 # Serve frontend — cherche d'abord static/ (Render), puis ../frontend/ (dev local)
 for _fp in [

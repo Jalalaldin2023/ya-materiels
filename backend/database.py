@@ -180,6 +180,16 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS sms_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER REFERENCES clients(id),
+            telephone TEXT NOT NULL,
+            message TEXT NOT NULL,
+            statut TEXT DEFAULT 'envoye',
+            magasin_id INTEGER NOT NULL REFERENCES magasins(id),
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS devis_lignes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             devis_id INTEGER NOT NULL REFERENCES devis(id) ON DELETE CASCADE,
