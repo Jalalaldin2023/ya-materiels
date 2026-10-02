@@ -1,10 +1,28 @@
 import sqlite3
 import os
+import shutil
 import hashlib
 
 # En production, stocker la DB dans /data (volume persistant Render)
+_bundled_db = os.path.join(os.path.dirname(__file__), "quincaillerie.db")
 _data_dir = os.environ.get("DATA_DIR", os.path.dirname(__file__))
 DB_PATH = os.path.join(_data_dir, "quincaillerie.db")
+
+
+def _prepare_persistent_db():
+    """Au tout premier démarrage sur le disque persistant, copie la base livrée
+    avec le code (stock, ventes, utilisateurs existants). Ensuite, la base du
+    disque n'est plus jamais écrasée : les utilisateurs et données créés en
+    ligne survivent à toutes les mises à jour du logiciel."""
+    if os.path.abspath(DB_PATH) == os.path.abspath(_bundled_db):
+        if os.environ.get("RENDER"):
+            print("[DB] ATTENTION : DATA_DIR non défini, la base sera réinitialisée à chaque déploiement")
+        return
+    os.makedirs(_data_dir, exist_ok=True)
+    if not os.path.exists(DB_PATH) and os.path.exists(_bundled_db):
+        shutil.copy2(_bundled_db, DB_PATH)
+        print(f"[DB] Base initiale copiée vers {DB_PATH}")
+    print(f"[DB] Base persistante utilisée : {DB_PATH}")
 
 
 def get_db():
@@ -19,6 +37,7 @@ def hash_pwd(pwd):
 
 
 def init_db():
+    _prepare_persistent_db()
     conn = get_db()
     cur = conn.cursor()
 

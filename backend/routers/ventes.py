@@ -80,8 +80,7 @@ def create_vente(v: VenteIn):
             prod = db.execute("SELECT * FROM produits WHERE id=? AND magasin_id=?", (ligne.produit_id, v.magasin_id)).fetchone()
             if not prod:
                 raise HTTPException(400, f"Produit {ligne.produit_id} non trouvé")
-            if prod["quantite"] < ligne.quantite:
-                raise HTTPException(400, f"Stock insuffisant pour {prod['nom']}: {prod['quantite']} disponible(s)")
+            # Stock négatif autorisé : on vend même si stock épuisé (commande en attente)
 
         total = sum(l.quantite * l.prix_unitaire for l in v.lignes) - v.remise
         numero = gen_numero(v.magasin_id, db)

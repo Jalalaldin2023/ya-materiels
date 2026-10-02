@@ -1412,22 +1412,23 @@ function filterPos(){
 }
 
 function posCard(p, pvLabel, pvClass) {
-  return `<div class="pos-card" onclick="addPanier(${p.id})" style="${p.quantite<=0?'opacity:.5;filter:grayscale(.5)':''}">
+  return `<div class="pos-card" onclick="addPanier(${p.id})" style="${p.quantite<=0?'opacity:.7':''}">
     <div class="nom">${p.nom}</div>
     <div class="prix">${fmt(getPrixProduit(p))} <span class="pv-badge ${pvClass}" style="font-size:9px">${pvLabel}</span></div>
     <div class="stock" style="color:${p.quantite<=0?'var(--danger)':p.quantite<=p.quantite_min?'var(--warning)':'var(--text-muted)'}">
-      ${p.quantite<=0?'⛔ Épuisé':'Stock: '+p.quantite+' '+p.unite}
+      ${p.quantite<=0?`⚠️ Stock: ${p.quantite} ${p.unite}`:'Stock: '+p.quantite+' '+p.unite}
     </div>
   </div>`;
 }
 
 function addPanier(id){
   const p=posProds.find(x=>x.id===id);
-  if(!p||p.quantite<=0){toast('Stock épuisé !','danger');return;}
+  if(!p){toast('Produit introuvable !','danger');return;}
+  if(p.quantite<=0) toast(`⚠️ Stock à ${p.quantite} ${p.unite} — vente enregistrée quand même`,'warning');
   const prix=getPrixProduit(p);
   const ex=panier.find(x=>x.id===id);
-  if(ex){if(ex.qty>=p.quantite){toast('Stock insuffisant !','danger');return;}ex.qty++;}
-  else panier.push({id,nom:p.nom,code:p.code||'',prix,prix_original:prix,remise_pct:0,pv:pvNiveau,qty:1,max:p.quantite,
+  if(ex){ex.qty++;}
+  else panier.push({id,nom:p.nom,code:p.code||'',prix,prix_original:prix,remise_pct:0,pv:pvNiveau,qty:1,max:9999,
     pv1:p.prix_vente, pv2:p.prix_vente2||p.prix_vente, pv3:p.prix_vente3||p.prix_vente});
   renderPanier();
 }
@@ -1499,7 +1500,7 @@ function appliquerRemiseGlobale(pct){
   renderPanier();
 }
 
-function chgQ(i,d){const it=panier[i],nq=it.qty+d;if(nq<=0){panier.splice(i,1);renderPanier();return;}if(nq>it.max){toast('Stock insuffisant !','danger');return;}it.qty=nq;renderPanier();}
+function chgQ(i,d){const it=panier[i],nq=it.qty+d;if(nq<=0){panier.splice(i,1);renderPanier();return;}it.qty=nq;renderPanier();}
 function clearPanier(){panier=[];renderPanier();}
 function updatePanTotal(){
   const sub=panier.reduce((s,i)=>s+i.qty*i.prix,0);
