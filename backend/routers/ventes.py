@@ -117,6 +117,48 @@ def create_vente(v: VenteIn):
         db.close()
 
 
+class PaiementIn(BaseModel):
+    montant: float
+    mode_paiement: str = "especes"
+
+@router.post("/{vid}/payer")
+def payer_credit(vid: int, p: PaiementIn):
+    db = get_db()
+    try:
+        v = db.execute("SELECT * FROM ventes WHERE id=?", (vid,)).fetchone()
+        if not v:
+            raise HTTPException(404, "Vente non trouvée")
+        reste = v["total"] - v["montant_paye"]
+        if reste <= 0:
+            raise HTTPException(400, "Cette vente est déjà entièrement réglée")
+        if p.montant <= 0:
+            raise HTTPException(400, "Montant invalide")
+
+        paye = min(p.montant, reste)
+        nouveau_paye = v["montant_paye"] + paye
+        nouveau_statut = "payee" if nouveau_paye >= v["total"] else "credit"
+
+        db.execute(
+            "UPDATE ventes SET montant_paye=?, statut=?, mode_paiement=? WHERE id=?",
+            (nouveau_paye, nouveau_statut, p.mode_paiement, vid)
+        )
+        if v["client_id"]:
+            db.execute("UPDATE clients SET solde=solde-? WHERE id=?", (paye, v["client_id"]))
+        db.commit()
+        return {
+            "message": "Paiement enregistré",
+            "montant_paye": nouveau_paye,
+            "reste": v["total"] - nouveau_paye,
+            "statut": nouveau_statut
+        }
+    except HTTPException:
+        db.rollback(); raise
+    except Exception as e:
+        db.rollback(); raise HTTPException(400, str(e))
+    finally:
+        db.close()
+
+
 @router.delete("/{vid}")
 def cancel_vente(vid: int):
     db = get_db()

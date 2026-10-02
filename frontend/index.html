@@ -1570,17 +1570,18 @@ async function ouvrirPaiement(){
 
         <!-- Colonne droite : monnaie + options -->
         <div style="display:flex;flex-direction:column;gap:12px">
-          <!-- Monnaie à rendre -->
+          <!-- Résultat paiement (monnaie / reste à crédit) -->
           <div id="monnaie-box" class="monnaie-display">
-            <div style="font-size:11px;font-weight:600;color:#15803d;margin-bottom:4px">MONNAIE À REMETTRE</div>
-            <div style="font-size:36px;font-weight:800;color:#15803d" id="monnaie">—</div>
+            <div style="font-size:11px;font-weight:600;margin-bottom:4px" id="monnaie-label">MONNAIE À REMETTRE</div>
+            <div style="font-size:36px;font-weight:800" id="monnaie">—</div>
           </div>
 
           <!-- Récapitulatif -->
           <div style="background:#f9fafb;border-radius:8px;padding:12px;font-size:13px">
             <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Total</span><strong>${fmt(total)}</strong></div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:6px;color:#15803d"><span>Donné</span><strong id="recapDonne">—</strong></div>
-            <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:6px;font-size:15px;font-weight:700"><span>Monnaie</span><span id="recapMonnaie" style="color:#15803d">—</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Montant donné</span><strong id="recapDonne">—</strong></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;border-top:1px solid var(--border);padding-top:6px;font-size:14px;font-weight:700"><span>Monnaie</span><span id="recapMonnaie" style="color:#15803d">—</span></div>
+            <div id="recapCredit" style="display:none;justify-content:space-between;font-size:14px;font-weight:700;color:#dc2626"><span>Reste à crédit</span><span id="recapCreditVal">—</span></div>
           </div>
 
           <!-- Client -->
@@ -1662,23 +1663,33 @@ function calcMon(total, recu) {
   const monnaie = recu - total;
   const el = document.getElementById('monnaie');
   const box = document.getElementById('monnaie-box');
+  const lbl = document.getElementById('monnaie-label');
   const rd = document.getElementById('recapDonne');
   const rm = document.getElementById('recapMonnaie');
+  const rcRow = document.getElementById('recapCredit');
+  const rcVal = document.getElementById('recapCreditVal');
   if(rd) rd.textContent = recu>0 ? fmt(recu) : '—';
+  if(rcRow) rcRow.style.display='none';
   if(el) {
     if(recu===0 || recu===total) {
       el.textContent='—'; el.style.color='#15803d';
       if(box){box.className='monnaie-display exact';}
-      if(rm) rm.textContent='—';
-    } else if(monnaie>=0) {
+      if(lbl){lbl.textContent='MONNAIE À REMETTRE';lbl.style.color='#15803d';}
+      if(rm){rm.textContent='—';rm.style.color='#15803d';}
+    } else if(monnaie>0) {
       el.textContent=fmt(monnaie); el.style.color='#15803d';
       if(box){box.className='monnaie-display';}
+      if(lbl){lbl.textContent='MONNAIE À REMETTRE';lbl.style.color='#15803d';}
       if(rm){rm.textContent=fmt(monnaie);rm.style.color='#15803d';}
     } else {
-      el.textContent='⚠️ Insuffisant ('+fmt(Math.abs(monnaie))+')';
-      el.style.color='var(--danger)';
+      // Paiement partiel : recu > 0 mais < total
+      const credit = Math.abs(monnaie);
+      el.textContent=fmt(credit); el.style.color='#dc2626';
       if(box){box.className='monnaie-display doit';}
-      if(rm){rm.textContent='Manque '+fmt(Math.abs(monnaie));rm.style.color='var(--danger)';}
+      if(lbl){lbl.textContent='RESTE À CRÉDIT';lbl.style.color='#dc2626';}
+      if(rm){rm.textContent='—';rm.style.color='#15803d';}
+      if(rcRow){rcRow.style.display='flex';}
+      if(rcVal){rcVal.textContent=fmt(credit);}
     }
   }
 }
@@ -1952,6 +1963,7 @@ async function renderVentes(s='',dd='',df=''){
             <td>
               <button class="btn-icon" title="Voir détail" onclick="voirVente(${v.id})">👁</button>
               <button class="btn-icon" title="Imprimer facture" onclick="imprimerFactureVente(${v.id})">🧾</button>
+              ${v.statut==='credit'?`<button class="btn-icon" title="Régler le crédit" onclick="reglerCredit(${v.id},'${v.numero}',${v.total},${v.montant_paye})" style="color:#dc2626">💳</button>`:''}
               ${canAdmin()?`<button class="btn-icon" title="Annuler" onclick="annulerVente(${v.id},'${v.numero}')">❌</button>`:''}
             </td>
           </tr>`).join('')||'<tr><td colspan="8" class="text-muted" style="text-align:center;padding:16px">Aucune vente</td></tr>'}
@@ -1979,7 +1991,10 @@ async function voirVente(id){
         ${v.total>v.montant_paye?`<div style="color:var(--danger);font-weight:600">Reste: ${fmt(v.total-v.montant_paye)}</div>`:''}
       </div>
     </div>
-    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">Fermer</button></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Fermer</button>
+      ${v.statut==='credit'?`<button class="btn btn-primary" onclick="closeModal();reglerCredit(${v.id},'${v.numero}',${v.total},${v.montant_paye})" style="background:#dc2626">💳 Régler le crédit</button>`:''}
+    </div>
   </div>`);
 }
 async function imprimerFactureVente(id) {
@@ -2000,6 +2015,79 @@ async function imprimerFactureVente(id) {
 async function annulerVente(id,num){
   if(!confirm(`Annuler la vente ${num} ?`))return;
   await api(`/ventes/${id}`,{method:'DELETE'}); toast('Vente annulée'); renderVentes();
+}
+
+function reglerCredit(id, numero, total, montantPaye) {
+  const reste = total - montantPaye;
+  showModal(`<div class="modal">
+    <div class="modal-header">
+      <h3>💳 Régler crédit — ${numero}</h3>
+      <button class="btn-icon" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:16px;font-size:14px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Total vente</span><strong>${fmt(total)}</strong></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;color:#15803d"><span>Déjà payé</span><strong>${fmt(montantPaye)}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;color:#dc2626;border-top:1px solid #fecaca;padding-top:8px"><span>Reste à régler</span><span>${fmt(reste)}</span></div>
+      </div>
+      <div class="form-group">
+        <label>Montant encaissé maintenant</label>
+        <input type="number" id="regl-montant" class="form-control" value="${reste}" min="1" max="${reste}" step="1" oninput="updateReglerRecap(${reste})">
+      </div>
+      <div class="form-group">
+        <label>Mode de paiement</label>
+        <select id="regl-mode" class="form-control">
+          <option value="especes">Espèces</option>
+          <option value="mobile_money">Mobile Money</option>
+          <option value="virement">Virement</option>
+          <option value="cheque">Chèque</option>
+        </select>
+      </div>
+      <div id="regl-recap" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px;font-size:13px;display:none">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Payé maintenant</span><strong id="regl-paye-now">—</strong></div>
+        <div style="display:flex;justify-content:space-between;color:#dc2626;font-weight:600"><span>Nouveau reste</span><span id="regl-nouveau-reste">—</span></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="confirmerReglement(${id},'${numero}',${reste})" style="background:#15803d">✓ Enregistrer paiement</button>
+    </div>
+  </div>`);
+  // initialiser le recap
+  updateReglerRecap(reste);
+}
+
+function updateReglerRecap(reste) {
+  const montant = parseFloat(document.getElementById('regl-montant')?.value)||0;
+  const recap = document.getElementById('regl-recap');
+  const payeNow = document.getElementById('regl-paye-now');
+  const nouveauReste = document.getElementById('regl-nouveau-reste');
+  if(!recap) return;
+  const effectif = Math.min(montant, reste);
+  const nvReste = reste - effectif;
+  recap.style.display = montant>0 ? 'block' : 'none';
+  if(payeNow) payeNow.textContent = fmt(effectif);
+  if(nouveauReste) {
+    nouveauReste.textContent = nvReste<=0 ? '✓ Soldé' : fmt(nvReste);
+    nouveauReste.style.color = nvReste<=0 ? '#15803d' : '#dc2626';
+  }
+}
+
+async function confirmerReglement(id, numero, reste) {
+  const montant = parseFloat(document.getElementById('regl-montant')?.value)||0;
+  const mode = document.getElementById('regl-mode')?.value||'especes';
+  if(montant<=0){toast('Montant invalide','error');return;}
+  try {
+    const res = await api(`/ventes/${id}/payer`,{method:'POST',body:{montant,mode_paiement:mode}});
+    closeModal();
+    const msg = res.statut==='payee'
+      ? `✓ Vente ${numero} entièrement soldée !`
+      : `✓ Paiement enregistré — reste ${fmt(res.reste)}`;
+    toast(msg);
+    renderVentes();
+  } catch(e) {
+    toast(e.message||'Erreur','error');
+  }
 }
 
 // ── PRODUITS ──────────────────────────────────────────────────────────────────
